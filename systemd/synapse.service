@@ -1,0 +1,16 @@
+[Unit]
+Description=Synapse — Consolidated Agent Supervisor
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=%h/.nvm/versions/node/current/bin/node %h/synapse-sdk.js
+EnvironmentFile=%h/.env
+Environment=HOME=%h
+Environment=PATH=%h/.nvm/versions/node/current/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,32 @@
+# ============================================================================
+# Claude Hive — Agent Crontab
+# Timezone: adjust to your timezone
+# Replace $HOME with your actual home directory path
+# ============================================================================
+
+# === AGENT-MONITOR CRONS ===
+# Host ping - every 10 minutes
+*/10 * * * * $HOME/agents/agent-monitor/scripts/ping-host.sh 2>/dev/null
+
+# Session heartbeat - every 30 min
+*/30 * * * * $HOME/agents/agent-monitor/scripts/session-heartbeat.sh >> $HOME/agents/agent-monitor/logs/session-heartbeat.log 2>&1
+
+# Task validation - 8:30 AM weekdays
+30 8 * * 1-5 $HOME/agents/agent-monitor/scripts/validate-tasks.sh auto >> $HOME/agents/agent-monitor/logs/validate.log 2>&1
+
+# Task validation - 2:00 PM weekdays
+0 14 * * 1-5 $HOME/agents/agent-monitor/scripts/validate-tasks.sh auto >> $HOME/agents/agent-monitor/logs/validate.log 2>&1
+
+# === AGENT-DATA CRONS ===
+# Daily cross-check - 5:30 AM
+30 5 * * * $HOME/scripts/cron-runner.sh agent-data "Run your daily cross-check. Query active records and validate data quality. Write results to memory." cron
+
+# Discovery session - 6:00 AM daily
+0 6 * * * $HOME/scripts/cron-runner.sh agent-data "Run a discovery session. Look for data anomalies or patterns. Write findings to memory." cron
+
+# Weekly validation - Monday 7:10 AM
+10 7 * * 1 $HOME/scripts/cron-runner.sh agent-data "Run weekly quality checks. Validate data integrity. Write results to memory." cron
+
+# === AGENT-ORCHESTRATOR CRONS ===
+# Heartbeat - every 30 min during work hours
+*/30 6-19 * * * $HOME/scripts/cron-runner.sh agent-orchestrator "Heartbeat check. Read today memory. Check cross-agent memory for anything notable. If all clear reply HEARTBEAT_OK." heartbeat

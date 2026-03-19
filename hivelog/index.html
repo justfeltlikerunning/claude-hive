@@ -1,0 +1,3029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiveLog</title>
+<style>
+  :root { --bg: #0a0a0f; --surface: #12121a; --surface2: #181825; --border: #1e1e2e;
+    --text: #c8c8d0; --muted: #666680; --cyan: #4ecdc4; --amber: #e8a838;
+    --red: #e85555; --green: #4ade80; --blue: #60a5fa; --purple: #c084fc; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'SF Mono','Fira Code','Consolas',monospace; background:var(--bg); color:var(--text); font-size:13px; }
+
+  .header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px;
+    border-bottom:1px solid var(--border); background:var(--surface); }
+  .header h1 { font-size:15px; color:var(--cyan); }
+  .header .controls { display:flex; gap:6px; align-items:center; min-width:0; flex:1; justify-content:flex-end; }
+  .date-picker { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:3px 6px; border-radius:4px; font-family:inherit; font-size:11px; }
+  .tab-bar { display:flex; gap:2px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; flex-shrink:1; min-width:0; }
+  .tab-bar::-webkit-scrollbar { display:none; }
+  .tab { padding:4px 8px; border-radius:4px 4px 0 0; cursor:pointer; font-size:10px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-bottom:none; white-space:nowrap; flex-shrink:0; }
+  .tab.active { color:var(--cyan); background:var(--surface2); }
+  .baseline-q { padding:4px 8px; margin:2px 0; border-radius:3px; cursor:pointer; transition:background 0.15s; border-left:2px solid var(--border); }
+  .baseline-q:hover { background:var(--surface2); border-left-color:var(--cyan); }
+  .baseline-q { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .baseline-q-text { flex:1; }
+  .baseline-copy-btn { background:var(--cyan); color:#000; border:none; padding:2px 10px; border-radius:3px; cursor:pointer; font-size:10px; font-weight:bold; white-space:nowrap; flex-shrink:0; }
+  .baseline-copy-btn:hover { opacity:0.8; }
+  .baseline-copy-btn:active { transform:scale(0.95); }
+  .copy-btn-discreet { background:none; border:1px solid var(--border); color:var(--muted); padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px; font-family:inherit; opacity:0.4; transition:opacity 0.15s; float:right; }
+  .copy-btn-discreet:hover { opacity:1; color:var(--cyan); border-color:var(--cyan); }
+
+  .container { display:flex; height:calc(100vh - 42px); }
+  .sidebar { width:260px; border-right:1px solid var(--border); background:var(--surface); display:flex; flex-direction:column; flex-shrink:0; overflow-y:auto; transition:width 0.2s,min-width 0.2s; }
+  .sidebar.collapsed { width:32px; min-width:32px; overflow:hidden; }
+  .sidebar.collapsed .sidebar-section { display:none; }
+  .sidebar.collapsed .sidebar-collapse-btn { transform:rotate(180deg); }
+  .sidebar-collapse-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:6px; width:100%; text-align:center; border-bottom:1px solid var(--border); transition:transform 0.2s; }
+  .sidebar-collapse-btn:hover { color:var(--cyan); }
+  .main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+  .sidebar-section { padding:10px; border-bottom:1px solid var(--border); }
+  .sidebar-section h3 { font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:6px; }
+
+  .spawn-form { display:flex; flex-direction:column; gap:5px; }
+  .spawn-form select,.spawn-form textarea,.spawn-form button { font-family:inherit; font-size:11px; border-radius:4px; border:1px solid var(--border); }
+  .spawn-form select,.spawn-form textarea { background:var(--bg); color:var(--text); padding:5px; }
+  .spawn-form textarea { resize:vertical; min-height:50px; }
+  .spawn-form button { background:var(--cyan); color:var(--bg); border:none; padding:5px 10px; cursor:pointer; font-weight:600; }
+  .spawn-form button:disabled { opacity:0.4; }
+  .spawn-result { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:6px; margin-top:6px; max-height:160px; overflow-y:auto; font-size:10px; white-space:pre-wrap; word-break:break-word; display:none; }
+
+  .upload-zone { border:2px dashed var(--border); border-radius:6px; padding:12px; text-align:center; color:var(--muted); cursor:pointer; font-size:11px; }
+  .upload-zone:hover,.upload-zone.dragover { border-color:var(--cyan); color:var(--cyan); }
+  .upload-zone input { display:none; }
+  .file-list { max-height:100px; overflow-y:auto; margin-top:6px; }
+  .file-item { display:flex; justify-content:space-between; padding:2px 0; font-size:10px; }
+  .file-item a { color:var(--blue); text-decoration:none; }
+
+  /* Service indicators */
+  .svc-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  .svc-item { display:flex; align-items:center; gap:4px; font-size:10px; padding:3px 5px; background:var(--bg); border-radius:3px; }
+  .svc-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .svc-dot.up { background:var(--green); }
+  .svc-dot.down { background:var(--red); }
+  .svc-dot.unknown { background:var(--muted); }
+
+  /* Panels */
+  .panel { display:none; flex:1; overflow:hidden; }
+  .panel.active { display:flex; flex-direction:column; }
+
+  /* Logs panel */
+  .logs-container { flex:1; display:flex; overflow:hidden; }
+  .agent-column { flex:1; display:flex; flex-direction:column; border-right:1px solid var(--border); overflow:hidden; }
+  .agent-column:last-child { border-right:none; }
+  .agent-header { padding:6px 10px; background:var(--surface); border-bottom:1px solid var(--border); font-size:11px; font-weight:600; display:flex; justify-content:space-between; }
+  .agent-header .name { color:var(--cyan); }
+  .agent-log { flex:1; overflow-y:auto; padding:6px 10px; font-size:11px; line-height:1.5; }
+  .line.cron-done { color:var(--green); }
+  .line.cron-fail { color:var(--red); }
+  .line.task { color:var(--blue); }
+  .line.heartbeat { color:var(--muted); }
+  .line.heading { color:var(--amber); font-weight:600; margin-top:6px; }
+
+  /* Metrics panel */
+  .metrics-panel { flex:1; overflow-y:auto; padding:16px; }
+  .metrics-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .metric-card { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:12px; }
+  .metric-card h4 { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+  .metric-card .value { font-size:22px; font-weight:700; margin-bottom:8px; }
+  .metric-card canvas { width:100%; height:80px; }
+
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-track { background:var(--bg); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+  /* Mobile responsive */
+  .mobile-tab-select { display:none; background:var(--bg); border:1px solid var(--cyan); color:var(--cyan);
+    padding:6px 10px; border-radius:4px; font-family:inherit; font-size:12px; font-weight:600;
+    cursor:pointer; -webkit-appearance:none; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234ecdc4'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center; padding-right:24px; }
+  @media (max-width: 768px) {
+    .container { flex-direction: column; height: auto; min-height: calc(100vh - 42px); }
+    .sidebar { display: none !important; }
+    .main { flex: 1; min-height: 60vh; }
+    .logs-container { flex-direction: column; overflow-y: auto; }
+    .agent-column { border-right: none; border-bottom: 1px solid var(--border);
+      min-height: 200px; max-height: 40vh; }
+    .agent-column:last-child { border-bottom: none; }
+    .agent-log { max-height: 35vh; }
+    .metrics-grid { grid-template-columns: 1fr; }
+    .header { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+    .header h1 { font-size: 14px; }
+    .controls { flex-wrap: wrap; gap: 6px; }
+    .tab-bar { display: none !important; }
+    .mobile-tab-select { display: block; }
+    .mobile-status { display: flex !important; gap: 8px; align-items: center; }
+    .upload-zone { padding: 10px; font-size: 10px; }
+  }
+  @media (max-width: 480px) {
+    .baseline-grid { grid-template-columns: 1fr !important; }
+    body { font-size: 12px; }
+    .agent-column { min-height: 150px; max-height: 35vh; }
+    .agent-log { font-size: 10px; line-height: 1.4; }
+    .metric-card .value { font-size: 18px; }
+    .svc-grid { grid-template-columns: 1fr; }
+    .task-toolbar { display:grid !important; grid-template-columns:1fr 1fr; gap:4px !important; }
+    .task-toolbar input { grid-column: 1 / -1; }
+  }
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .sidebar { width: 220px; }
+  }
+  .sidebar-toggle { display: none; background: var(--surface); border: 1px solid var(--border);
+    color: var(--cyan); padding: 8px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 12px; width: calc(100% - 16px); margin: 8px;
+    text-align: left; }
+  @media (max-width: 768px) {
+    .sidebar-toggle { display: block; }
+    .sidebar-content { display: none; }
+    .sidebar-content.open { display: block; }
+    .query-charts-grid { grid-template-columns: 1fr !important; }
+    .query-table-desktop { display: none !important; }
+    .query-cards-mobile { display: block !important; }
+  }
+  @media (min-width: 769px) {
+    .query-cards-mobile { display: none !important; }
+  }
+  .query-card { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px; margin:6px 8px; cursor:pointer; }
+  .query-card:active { background:var(--surface2); }
+  .query-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .query-card-query { font-size:11px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:4px; }
+  .query-card-meta { display:flex; gap:10px; font-size:10px; color:var(--muted); }
+
+
+  /* Docs accordion */
+  .docs-h1 { font-size:18px; font-weight:700; color:var(--cyan); margin-bottom:4px; }
+  .docs-section { margin-bottom:2px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+  .docs-section[open] { background:var(--surface2); }
+  .docs-section-sum { padding:10px 14px; cursor:pointer; font-size:13px; font-weight:600; color:var(--text); list-style:none; display:flex; align-items:center; gap:8px; user-select:none; }
+  .docs-section-sum::-webkit-details-marker { display:none; }
+  .docs-section-sum::before { content:"▸"; color:var(--cyan); font-size:11px; transition:transform 0.15s; flex-shrink:0; }
+  .docs-section[open] > .docs-section-sum::before { transform:rotate(90deg); }
+  .docs-section-sum:hover { color:var(--cyan); }
+  .docs-section-body { padding:0 14px 12px 26px; }
+  .docs-sub { margin:4px 0; border-left:2px solid var(--border); border-radius:0 4px 4px 0; }
+  .docs-sub[open] { border-left-color:var(--cyan); background:rgba(78,205,196,0.03); }
+  .docs-sub-sum { padding:6px 10px; cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); list-style:none; display:flex; align-items:center; gap:6px; user-select:none; }
+  .docs-sub-sum::-webkit-details-marker { display:none; }
+  .docs-sub-sum::before { content:"›"; color:var(--cyan); font-size:13px; transition:transform 0.15s; flex-shrink:0; }
+  .docs-sub[open] > .docs-sub-sum::before { content:"▾"; }
+  .docs-sub-sum:hover { color:var(--text); }
+  .docs-sub-body { padding:6px 10px 10px 18px; }
+  .docs-table { border-collapse:collapse; width:100%; margin:8px 0; font-size:11px; }
+  .docs-td { padding:4px 8px; border:1px solid var(--border); }
+  .docs-table tr:first-child .docs-td { background:var(--surface); color:var(--cyan); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:0.04em; }
+  .docs-code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:10px; margin:8px 0; overflow-x:auto; font-size:11px; white-space:pre; }
+  .docs-inline-code { background:var(--bg); padding:1px 5px; border-radius:3px; font-size:11px; color:var(--amber); }
+  .docs-bullet { display:flex; gap:6px; padding:2px 0; align-items:baseline; }
+  .docs-bullet-dot { color:var(--cyan); flex-shrink:0; }
+  .docs-quote { border-left:3px solid var(--cyan); padding:4px 10px; margin:4px 0; color:var(--muted); font-style:italic; }
+  .docs-hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
+  .docs-flash { animation:docs-pulse 1.2s ease; }
+  @keyframes docs-pulse { 0%,100%{background:transparent} 30%{background:rgba(78,205,196,0.08)} }
+  .docs-toc-item { padding:5px 12px; cursor:pointer; color:var(--text); display:flex; gap:6px; align-items:baseline; transition:all 0.1s; border-left:2px solid transparent; }
+  .docs-toc-item:hover { color:var(--cyan); background:var(--surface2); border-left-color:var(--cyan); }
+  .docs-toc-num { color:var(--muted); font-size:10px; min-width:14px; }
+  .docs-toc-sub { padding:3px 12px 3px 28px; cursor:pointer; color:var(--muted); font-size:10px; transition:all 0.1s; border-left:2px solid transparent; }
+  .docs-toc-sub:hover { color:var(--cyan); background:var(--surface2); border-left-color:var(--cyan); }
+  .docs-toc-dot { color:var(--cyan); margin-right:4px; }
+  @media (max-width: 768px) { #docs-toc { display:none !important; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>HiveLog</h1>
+  <div class="controls">
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
+      <div class="tab" onclick="switchTab('logs')">Logs</div>
+      <div class="tab" onclick="switchTab('queries')">Queries</div>
+      <div class="tab" onclick="switchTab('interactions')">History</div>
+      <div class="tab" onclick="switchTab('ops')">Ops</div>
+      <div class="tab" onclick="switchTab('summary')">Summary</div>
+      <div class="tab" onclick="switchTab('testplan')">Test Plan</div>
+      <div class="tab" onclick="switchTab('usage')">Usage</div>
+      <div class="tab" onclick="switchTab('metrics')">Metrics</div>
+      <div class="tab" onclick="switchTab('baseline')">Baseline</div>
+      <div class="tab" onclick="switchTab('docs')">Docs</div>
+    </div>
+    <select id="mobile-tab-select" class="mobile-tab-select" onchange="switchTab(this.value)">
+      <option value="tasks" selected>Tasks</option>
+      <option value="logs">Logs</option>
+      <option value="queries">Queries</option>
+      <option value="interactions">History</option>
+      <option value="ops">Ops</option>
+      <option value="summary">Summary</option>
+      <option value="testplan">Test Plan</option>
+      <option value="usage">Usage</option>
+      <option value="metrics">Metrics</option>
+      <option value="baseline">Baseline</option>
+      <option value="docs">Docs</option>
+    </select>
+    <input type="date" class="date-picker" id="date-picker">
+    <select id="range-picker" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:4px;font-family:inherit;font-size:11px;" onchange="setRange(this.value)">
+      <option value="today" selected>Today</option>
+      <option value="yesterday">Yesterday</option>
+      <option value="7d">Past 7 Days</option>
+      <option value="14d">Past 14 Days</option>
+      <option value="30d">Past Month</option>
+      <option value="365d">Past Year</option>
+      <option value="all">All Time</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+  <div class="sidebar" id="main-sidebar"><button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Collapse sidebar">◀</button>
+    <button class="sidebar-toggle" id="sidebar-btn">Menu &#9660;</button>
+    <div class="sidebar-content">
+    <div class="sidebar-section">
+      <h3>Synapse</h3>
+      <div id="synapse-info" style="font-size:11px;color:var(--muted);">Loading...</div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Services</h3>
+      <div class="svc-grid" id="services-grid">Loading...</div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Quick Status</h3>
+      <div id="sidebar-task-summary" style="font-size:10px;color:var(--muted);">Loading...</div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Upload</h3>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        Drop / paste / click
+        <input type="file" id="file-input" multiple>
+      </div>
+      <div class="file-list" id="file-list"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="main">
+    <!-- Mobile status bar (hidden on desktop) -->
+    <div id="mobile-status" class="mobile-status" style="display:none;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);">
+      <span id="mobile-synapse-status"></span> <span id="mobile-task-count"></span>
+    </div>
+    <!-- Logs Panel -->
+    <div class="panel" id="panel-logs">
+      <div class="logs-container">
+        <div class="agent-column"><div class="agent-header"><span class="name">Agent-Orchestrator</span><span class="stat" id="stat-agent-orchestrator"></span></div><div class="agent-log" id="log-agent-orchestrator"></div></div>
+        <div class="agent-column"><div class="agent-header"><span class="name">Agent-Data</span><span class="stat" id="stat-agent-data"></span></div><div class="agent-log" id="log-agent-data"></div></div>
+        <div class="agent-column"><div class="agent-header"><span class="name">Agent-Monitor</span><span class="stat" id="stat-agent-monitor"></span></div><div class="agent-log" id="log-agent-monitor"></div></div>
+      </div>
+    </div>
+
+    
+    <!-- Tasks Panel -->
+    <div class="panel active" id="panel-tasks">
+      <div style="padding:12px; overflow-y:auto; flex:1;">
+        <!-- Search & Filter Bar -->
+        <div class="task-toolbar" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;">
+          <input id="task-search" placeholder="Search..." oninput="filterTasks()" style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:4px;font-family:inherit;font-size:11px;">
+          <select id="task-search-agent" onchange="filterTasks()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+            <option value="all">Agent</option>
+            <option value="agent-orchestrator">Agent-Orchestrator</option>
+            <option value="agent-data">Agent-Data</option>
+            <option value="agent-monitor">Agent-Monitor</option>
+          </select>
+          <select id="task-search-filter" onchange="filterTasks()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+            <option value="all">Status</option>
+            <option value="pending">Pending</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="running">Running</option>
+            <option value="complete">Complete</option>
+            <option value="failed">Failed</option>
+            <option value="incomplete">Incomplete</option>
+            <option value="deferred">Deferred</option>
+            <option value="closed">Closed</option>
+          </select>
+          <select id="task-search-source" onchange="filterTasks()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+            <option value="all">Source</option>
+            <option value="user">Mine</option>
+            <option value="cron">Cron</option>
+            <option value="heartbeat">Heartbeat</option>
+          </select>
+        </div>
+        <!-- New Task Form -->
+        <details id="task-form-toggle" style="margin-bottom:10px;">
+          <summary style="cursor:pointer;font-size:11px;color:var(--cyan);padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:4px;user-select:none;">+ New Task</summary>
+          <div style="background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:10px;">
+            <!-- Row 1: Agent + Model + Format -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
+              <select id="task-agent" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+                <option value="agent-data">Agent-Data</option><option value="agent-orchestrator">Agent-Orchestrator</option><option value="agent-monitor">Agent-Monitor</option>
+              </select>
+              <select id="task-model" class="model-select" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+                <option value="">Default</option>
+              </select>
+              <select id="task-format" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+                <option value="text">Text</option>
+                <option value="xlsx">Excel</option>
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+                <option value="md">Markdown</option>
+                <option value="json">JSON</option>
+                <option value="py">Python</option>
+                <option value="html">HTML</option>
+                <option value="png">Chart</option>
+                <option value="pptx">PPTX</option>
+                <option value="docx">Word</option>
+                <option value="txt">Plain</option>
+              </select>
+            </div>
+            <!-- Row 2: Multi-Agent toggle + agent checkboxes -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap;">
+                <input type="checkbox" id="conv-mode" onchange="toggleConvMode()" style="accent-color:var(--cyan);"> Multi-Agent
+              </label>
+              <div id="conv-agents" style="display:none;">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+                  <label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--text);cursor:pointer;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;">
+                    <input type="checkbox" value="agent-orchestrator" class="conv-agent-cb" checked style="accent-color:var(--cyan);"> Agent-Orchestrator
+                  </label>
+                  <label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--text);cursor:pointer;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;">
+                    <input type="checkbox" value="agent-data" class="conv-agent-cb" checked style="accent-color:var(--cyan);"> Agent-Data
+                  </label>
+                  <label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--text);cursor:pointer;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;">
+                    <input type="checkbox" value="agent-monitor" class="conv-agent-cb" style="accent-color:var(--cyan);"> Agent-Monitor
+                  </label>
+                  <label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--muted);white-space:nowrap;" title="Discussion rounds">
+                    Rds:<select id="task-rounds" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:1px 3px;border-radius:3px;font-family:inherit;font-size:10px;margin-left:2px;">
+                    <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <!-- Row 3: Prompt -->
+            <textarea id="task-desc" placeholder="What do you need done? Use @agent to route." style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;min-height:50px;resize:vertical;box-sizing:border-box;"></textarea>
+            <!-- Row 4: Timeline + Attach + Create -->
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;">
+              <select id="task-timeline" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px;border-radius:4px;font-family:inherit;font-size:10px;" onchange="document.getElementById('task-schedule-date').style.display=this.value==='scheduled'?'inline-block':'none'">
+                <option value="immediate">Run now</option>
+                <option value="scheduled">Schedule...</option>
+              </select>
+              <input type="datetime-local" id="task-schedule-date" style="display:none;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px;border-radius:4px;font-family:inherit;font-size:10px;">
+              <label style="font-size:10px;color:var(--muted);cursor:pointer;white-space:nowrap;">Attach: <input type="file" id="task-file" style="font-size:10px;color:var(--text);max-width:120px;"></label>
+              <button onclick="createTask()" style="margin-left:auto;background:var(--cyan);color:var(--bg);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;">Create</button>
+            </div>
+          </div>
+        </details>
+        <div id="task-list">Loading tasks...</div>
+
+        <!-- Synapse Tasks (from task system) -->
+        <div id="synapse-tasks-section" style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h3 style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin:0;">Synapse Task Queue</h3>
+            <button onclick="fetchSynapseTasks()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:2px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;">Refresh</button>
+          </div>
+          <div id="synapse-task-list"></div>
+        </div>
+
+        <!-- Cron Schedule -->
+        <div id="cron-section" style="margin-top:16px;">
+          <h3 style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Scheduled Crons</h3>
+          <div id="cron-list"></div>
+        </div>
+
+        <!-- Fleet Ops moved to Ops tab -->
+      </div>
+    </div>
+
+    <!-- Queries Panel -->
+    <div class="panel" id="panel-queries">
+      <div style="padding:12px; overflow-y:auto; flex:1;">
+        <!-- Stats cards — 2x2 grid on mobile -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Today</div>
+            <div id="qs-today-count" style="font-size:22px;font-weight:700;color:var(--cyan);">0</div>
+            <div id="qs-today-avg" style="font-size:10px;color:var(--muted);">avg 0ms</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">This Week</div>
+            <div id="qs-week-count" style="font-size:22px;font-weight:700;color:var(--green);">0</div>
+            <div id="qs-week-avg" style="font-size:10px;color:var(--muted);">avg 0ms</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">This Month</div>
+            <div id="qs-month-count" style="font-size:22px;font-weight:700;color:var(--amber);">0</div>
+            <div id="qs-month-avg" style="font-size:10px;color:var(--muted);">avg 0ms</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Success Rate</div>
+            <div id="qs-success" style="font-size:22px;font-weight:700;color:var(--green);">--%</div>
+            <div id="qs-by-tool" style="font-size:10px;color:var(--muted);"></div>
+          </div>
+        </div>
+        <!-- Charts row — stacked on mobile -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;" class="query-charts-grid">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;overflow:hidden;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Queries / Hour (24h)</div>
+            <canvas id="chart-query-hourly" height="80" style="width:100%;display:block;"></canvas>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;overflow:hidden;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Avg Duration / Hour (ms)</div>
+            <canvas id="chart-query-duration" height="80" style="width:100%;display:block;"></canvas>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;" class="query-charts-grid">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;overflow:hidden;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Queries / Day (30d)</div>
+            <canvas id="chart-query-daily" height="80" style="width:100%;display:block;"></canvas>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;overflow:hidden;">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">By Tool</div>
+            <canvas id="chart-query-tools" height="80" style="width:100%;display:block;"></canvas>
+          </div>
+        <!-- Drill-down Chart -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div>
+              <span id="drill-breadcrumb" style="font-size:10px;color:var(--cyan);cursor:pointer;"></span>
+              <span id="drill-title" style="font-size:11px;color:var(--fg);font-weight:600;margin-left:4px;">Cost & Activity Breakdown</span>
+            </div>
+            <select id="drill-metric" onchange="renderDrillChart()" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 6px;border-radius:3px;font-size:10px;">
+              <option value="cost">Cost ($)</option>
+              <option value="count">Query Count</option>
+              <option value="duration">Avg Duration</option>
+            </select>
+          </div>
+          <div id="drill-chart" style="display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;"></div>
+          <div id="drill-labels" style="display:flex;gap:2px;font-size:8px;color:var(--muted);overflow:hidden;"></div>
+          <div id="drill-detail" style="margin-top:8px;font-size:10px;color:var(--muted);display:none;"></div>
+        </div>
+
+        </div>
+        <!-- Query log — card layout on mobile, table on desktop -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+          <div class="query-table-wrap">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;" class="query-table-desktop">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:0.05em;">
+                  <th style="padding:8px;text-align:left;">Time</th>
+                  <th style="padding:8px;text-align:left;">Tool</th>
+                  <th style="padding:8px;text-align:left;">Query</th>
+                  <th style="padding:8px;text-align:right;">Duration</th>
+                  <th style="padding:8px;text-align:right;">Rows</th>
+                  <th style="padding:8px;text-align:center;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="query-log-body"></tbody>
+            </table>
+          </div>
+          <!-- Mobile card layout -->
+          <div id="query-log-cards" class="query-cards-mobile"></div>
+          <div id="query-log-pagination" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactions Panel -->
+    <div class="panel" id="panel-interactions">
+      <div style="padding:12px; overflow-y:auto; flex:1;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div style="font-size:12px; color:var(--cyan); font-weight:600;">Interaction History</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="int-date-filter" onchange="fetchInteractions()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:4px;font-family:inherit;font-size:11px;"><option value="today" selected>Today</option><option value="yesterday">Yesterday</option><option value="7d">Past 7 Days</option></select><select id="int-agent-filter" onchange="fetchInteractions()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:4px;font-family:inherit;font-size:11px;">
+              <option value="">All Agents</option>
+              <option value="agent-orchestrator">Agent-Orchestrator</option>
+              <option value="agent-data">Agent-Data</option>
+              <option value="agent-monitor">Agent-Monitor</option>
+            </select>
+            <span id="int-count" style="font-size:10px;color:var(--muted);"></span>
+          </div>
+        </div>
+        <div id="interactions-list"></div>
+      </div>
+    </div>
+
+    <!-- Ops Panel (Escalations + Approvals merged) -->
+    <div class="panel" id="panel-ops">
+      <div style="padding:12px; overflow-y:auto; flex:1;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:13px;color:var(--text);margin:0;">Ops — Escalations & Approvals</h3>
+          <button onclick="fetchOps()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;">Refresh</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;"><span style="font-size:10px;color:var(--muted);">Filter:</span><select id="ops-status-filter" onchange="fetchOps()" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 6px;border-radius:3px;font-size:10px;"><option value="all">All Status</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="acknowledged">Acknowledged</option></select><select id="ops-date-filter" onchange="fetchOps()" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 6px;border-radius:3px;font-size:10px;"><option value="all">All Time</option><option value="today">Today</option><option value="7d">Past 7 Days</option><option value="30d">Past 30 Days</option></select></div><div id="ops-approvals" style="margin-bottom:16px;"></div>
+        <div id="ops-escalations"></div>
+      </div>
+    </div>
+
+    <!-- Weekly Summary Panel -->
+    <div class="panel" id="panel-summary">
+      <div style="padding:12px; overflow-y:auto; flex:1;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:13px;color:var(--text);margin:0;">Weekly Fleet Summary</h3>
+          <button onclick="generateWeeklySummary()" style="background:var(--cyan);color:var(--bg);border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;">Generate Now</button>
+        </div>
+        <div id="weekly-summary-content" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px;font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--text);"></div>
+      </div>
+    </div>
+
+    <!-- Test Plan Panel -->
+    <div class="panel" id="panel-testplan">
+      <div style="padding:16px; overflow-y:auto; flex:1;">
+        <h3 style="font-size:14px;color:var(--cyan);margin:0 0 12px;">HiveLog v3.9 — Feature Test Plan</h3>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">Test each feature below. Leave feedback in the box — it saves automatically and Claude Code reads it next session.</div>
+        <div id="testplan-features"></div>
+      </div>
+    </div>
+
+    <!-- Metrics Panel -->
+    <div class="panel" id="panel-metrics">
+      <div class="metrics-panel">
+        <!-- Synapse + Services (always visible here, duplicated from sidebar for mobile) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <h4 style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:6px;">Synapse</h4>
+            <div id="metrics-synapse-info" style="font-size:11px;color:var(--muted);">Loading...</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <h4 style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:6px;">Services</h4>
+            <div class="svc-grid" id="metrics-services-grid" style="grid-template-columns:1fr 1fr;gap:3px;"></div>
+          </div>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <h4>Fleet — CPU</h4>
+            <div class="value" id="val-cpu" style="color:var(--cyan)">--%</div>
+            <canvas id="chart-cpu" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>Fleet — RAM</h4>
+            <div class="value" id="val-ram" style="color:var(--green)">-- / -- GB</div>
+            <canvas id="chart-ram" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 0 — RTX 3090 VRAM</h4>
+            <div class="value" id="val-gpu0" style="color:var(--amber)">-- / -- MB</div>
+            <canvas id="chart-gpu0-vram" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 1 — RTX 3090 VRAM</h4>
+            <div class="value" id="val-gpu1" style="color:var(--amber)">-- / -- MB</div>
+            <canvas id="chart-gpu1-vram" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 0 — Temperature</h4>
+            <div class="value" id="val-gpu0-temp" style="color:var(--red)">--°C</div>
+            <canvas id="chart-gpu0-temp" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 1 — Temperature</h4>
+            <div class="value" id="val-gpu1-temp" style="color:var(--red)">--°C</div>
+            <canvas id="chart-gpu1-temp" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 0 — Utilization</h4>
+            <div class="value" id="val-gpu0-util" style="color:var(--purple)">--%</div>
+            <canvas id="chart-gpu0-util" height="80"></canvas>
+          </div>
+          <div class="metric-card">
+            <h4>GPU 1 — Utilization</h4>
+            <div class="value" id="val-gpu1-util" style="color:var(--purple)">--%</div>
+            <canvas id="chart-gpu1-util" height="80"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Usage Panel -->
+    <div class="panel" id="panel-usage">
+      <div style="padding:16px; overflow-y:auto; flex:1;">
+        <!-- Summary cards -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:16px;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Today</div>
+            <div id="usage-today-cost" style="font-size:24px;font-weight:700;color:var(--green);">$0.00</div>
+            <div id="usage-today-calls" style="font-size:11px;color:var(--muted);">0 calls</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">This Week</div>
+            <div id="usage-week-cost" style="font-size:24px;font-weight:700;color:var(--cyan);">$0.00</div>
+            <div id="usage-week-calls" style="font-size:11px;color:var(--muted);">0 calls</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">This Month</div>
+            <div id="usage-month-cost" style="font-size:24px;font-weight:700;color:var(--amber);">$0.00</div>
+            <div id="usage-month-calls" style="font-size:11px;color:var(--muted);">0 calls</div>
+          </div>
+        </div>
+
+        <!-- Hourly chart -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Cost by Hour (Today)</div>
+          <canvas id="chart-hourly-cost" height="100" style="width:100%;"></canvas>
+        </div>
+
+        <!-- Agent breakdown -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Today by Agent</div>
+            <div id="usage-today-agents"></div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Month by Agent</div>
+            <div id="usage-month-agents"></div>
+          </div>
+        </div>
+
+        <!-- Daily chart -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Daily Cost (Last 30 Days)</div>
+          <canvas id="chart-daily-cost" height="100" style="width:100%;"></canvas>
+        </div>
+
+        <!-- Recent calls -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Recent Calls</div>
+          <div id="usage-recent" style="font-size:11px;"></div>
+        </div>
+      </div>
+    </div>
+
+  <!-- Baseline Test Tab -->
+  <div class="panel" id="panel-baseline">
+    <div style="overflow-y:auto; flex:1; padding:4px;">
+
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <h3 style="margin:0; color:var(--cyan); font-size:14px;">Query Engine Baseline</h3>
+        <select id="baseline-date" onchange="loadBaselineDate(this.value)" style="background:var(--bg); color:var(--fg); border:1px solid var(--border); padding:4px 8px; border-radius:4px; font-size:12px;"></select>
+      </div>
+
+      <!-- Score + Key Metrics Row -->
+      <div style="display:grid; grid-template-columns: 120px 1fr; gap:12px; margin-bottom:12px;">
+        <div id="baseline-score-ring" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:12px; text-align:center;">
+          <div id="baseline-scores">—</div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap:8px;">
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; text-align:center;">
+            <div id="bm-matched" style="font-size:18px; font-weight:bold; color:var(--cyan);">—</div>
+            <div style="font-size:9px; color:var(--muted); text-transform:uppercase;">Matched</div>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; text-align:center;">
+            <div id="bm-firsttry" style="font-size:18px; font-weight:bold; color:var(--green);">—</div>
+            <div style="font-size:9px; color:var(--muted); text-transform:uppercase;">First Try</div>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; text-align:center;">
+            <div id="bm-fails" style="font-size:18px; font-weight:bold; color:var(--red);">—</div>
+            <div style="font-size:9px; color:var(--muted); text-transform:uppercase;">Failures</div>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; text-align:center;">
+            <div id="bm-avgtime" style="font-size:18px; font-weight:bold; color:var(--yellow);">—</div>
+            <div style="font-size:9px; color:var(--muted); text-transform:uppercase;">Avg Time</div>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; text-align:center;">
+            <div id="bm-toolmix" style="font-size:14px; font-weight:bold; color:var(--fg);">—</div>
+            <div style="font-size:9px; color:var(--muted); text-transform:uppercase;">Tool Mix</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Question Scores Table -->
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:12px;">
+        <table id="baseline-score-table" style="width:100%; font-size:11px; border-collapse:collapse;">
+          <thead>
+            <tr style="color:var(--cyan); border-bottom:1px solid var(--border);">
+              <th style="text-align:left; padding:4px 6px; width:24px;">#</th>
+              <th style="text-align:left; padding:4px 6px;">Question</th>
+              <th style="text-align:center; padding:4px 6px; width:80px;">Score</th>
+              <th style="text-align:center; padding:4px 6px; width:60px;">Tool</th>
+              <th style="text-align:right; padding:4px 6px; width:40px;">Qry</th>
+              <th style="text-align:right; padding:4px 6px; width:40px;">Fail</th>
+              <th style="text-align:center; padding:4px 6px; width:36px;">1st</th>
+              <th style="text-align:right; padding:4px 6px; width:50px;">Time</th>
+            </tr>
+          </thead>
+          <tbody id="baseline-score-body"><tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">Loading...</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Test Queries + Weekly Trend side by side -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;" class="baseline-grid">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <h4 style="margin:0; color:var(--cyan); font-size:11px;">Test Queries</h4>
+            <button class="baseline-copy-btn" style="padding:2px 8px; font-size:9px;" onclick="copyAllQueries()">Copy All</button>
+          </div>
+          <div style="font-size:10px; line-height:1.6;">
+            <div class="baseline-q"><span class="baseline-q-text">1. How many truly active records are in district WEST-01?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('How many truly active records are in district WEST-01?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">2. How many active service endpoints are serving active records in WEST-01?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('How many active service endpoints are serving active records in WEST-01?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">3. Show me the most recent audit log results for department 5</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('Show me the most recent audit log results for department 5')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">4. What are the latest performance and latency measurements for WEST-01?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('What are the latest performance and latency measurements for WEST-01?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">5. Join join users to orders and count per user for department 5</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('Join join users to orders and count per user for department 5')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">6. Which schedules are suspended over 14 days in WEST-01?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('Which schedules are suspended over 14 days in WEST-01?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">7. What are the top 10 products by usage count in WEST-01?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('What are the top 10 products by usage count in WEST-01?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">8. How many active devices with no recent data in the last 30 days?')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">9. For wells in WEST-01 with active injection points, show me their schedule status breakdown</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('For wells in WEST-01 with active injection points, show me their schedule status breakdown')">Copy</button></div>
+            <div class="baseline-q"><span class="baseline-q-text">10. Are there any compliance concerns at department 12?</span><button class="baseline-copy-btn" onclick="event.stopPropagation();copyBaselineQ('Are there any compliance concerns at department 12?')">Copy</button></div>
+          </div>
+          <div id="copy-toast" style="display:none; position:fixed; bottom:20px; right:20px; background:var(--cyan); color:#000; padding:8px 16px; border-radius:4px; font-size:12px; z-index:999;"></div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px;">
+          <h4 style="margin:0 0 6px; color:var(--cyan); font-size:11px;">Weekly Trend</h4>
+          <div style="overflow-x:auto;">
+            <table id="baseline-trend" style="width:100%; font-size:10px; border-collapse:collapse;">
+              <thead>
+                <tr style="color:var(--cyan); border-bottom:1px solid var(--border);">
+                  <th style="text-align:left; padding:3px 4px;">Date</th>
+                  <th style="text-align:right; padding:3px 4px;">Score</th>
+                  <th style="text-align:right; padding:3px 4px;">V2%</th>
+                  <th style="text-align:right; padding:3px 4px;">Fails</th>
+                  <th style="text-align:right; padding:3px 4px;">Avg</th>
+                </tr>
+              </thead>
+              <tbody id="baseline-trend-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Query Detail -->
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px;">
+        <h4 style="margin:0 0 6px; color:var(--cyan); font-size:11px;">Query Detail</h4>
+        <div style="overflow-x:auto;">
+          <table id="baseline-detail" style="width:100%; font-size:10px; border-collapse:collapse;">
+            <thead>
+              <tr style="color:var(--cyan); border-bottom:1px solid var(--border);">
+                <th style="text-align:left; padding:3px 4px;">Time</th>
+                <th style="text-align:left; padding:3px 4px;">Tool</th>
+                <th style="text-align:center; padding:3px 4px;">OK</th>
+                <th style="text-align:right; padding:3px 4px;">Dur</th>
+                <th style="text-align:right; padding:3px 4px;">Rows</th>
+                <th style="text-align:left; padding:3px 4px;">Client</th>
+                <th style="text-align:left; padding:3px 4px;">SQL</th>
+              </tr>
+            </thead>
+            <tbody id="baseline-detail-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-docs">
+    <div style="display:flex;height:100%;overflow:hidden;">
+      <div id="docs-toc" style="width:220px;min-width:220px;border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;padding:10px 0;font-size:11px;"></div>
+      <div style="flex:1;overflow-y:auto;padding:16px 20px;" id="docs-scroll">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-size:15px;color:var(--cyan);margin:0;" id="docs-title">Fleet Architecture &amp; Operations</h3>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="docs-version" style="font-size:10px;color:var(--muted);"></span>
+            <button onclick="docsExpandAll()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;">Expand All</button>
+            <button onclick="docsCollapseAll()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;">Collapse All</button>
+          </div>
+        </div>
+        <div id="fleet-docs-content" style="font-size:12px;line-height:1.7;color:var(--text);">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+
+  </div>
+</div>
+
+
+
+
+<script>
+const AGENTS = ["agent-orchestrator","agent-data","agent-monitor"];
+function localDate(d) { const o = d || new Date(); return o.getFullYear() + "-" + String(o.getMonth()+1).padStart(2,"0") + "-" + String(o.getDate()).padStart(2,"0"); }
+let currentDate = localDate();
+const picker = document.getElementById("date-picker");
+picker.value = currentDate;
+picker.addEventListener("change", () => { currentDate = picker.value; fetchLogs(); });
+
+let currentTab = 'tasks';
+  function switchTab(name) {
+    currentTab = name;
+    window.location.hash = name;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  const idx = {tasks:1,logs:2,queries:3,interactions:4,ops:5,summary:6,testplan:7,usage:8,metrics:9,baseline:10,docs:11}[name] || 1;
+  const tabEl = document.querySelector(`.tab-bar .tab:nth-child(${idx})`);
+  if (tabEl) tabEl.classList.add("active");
+  document.getElementById(`panel-${name}`).classList.add("active");
+  // Sync mobile dropdown
+  const mobileSelect = document.getElementById("mobile-tab-select");
+  if (mobileSelect) mobileSelect.value = name;
+  if (name === "tasks") fetchTasks();
+  if (name === "queries") { fetchQueryStats(); fetchQueryLog(); }
+  if (name === "interactions") fetchInteractions();
+  if (name === "ops") fetchOps();
+  if (name === "summary") fetchWeeklySummary();
+  if (name === "testplan") renderTestPlan();
+  if (name === "metrics") fetchMetrics();
+  if (name === "baseline") loadBaseline();
+  if (name === "docs") fetchFleetDocs();
+}
+
+// ── Chart drawing ──
+function drawChart(canvasId, data, max, color, filled = true, labels = []) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !data.length) return;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const padding = 2;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath(); ctx.moveTo(0, h * i/4); ctx.lineTo(w, h * i/4); ctx.stroke();
+  }
+
+  if (data.length === 0) return;
+  const barWidth = Math.max(2, (w - padding * 2) / data.length - 1);
+  const gap = 1;
+
+  data.forEach((v, i) => {
+    const barH = max > 0 ? (v / max) * (h - 4) : 0;
+    const x = padding + i * (barWidth + gap);
+    const y = h - barH;
+
+    // Bar
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(x, y, barWidth, barH);
+    ctx.globalAlpha = 1;
+
+    // Brighter top edge
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, barWidth, Math.min(2, barH));
+  });
+
+  // Store data for tooltip
+  canvas._chartData = data;
+  canvas._chartLabels = labels;
+  canvas._chartMax = max;
+  canvas._chartColor = color;
+  canvas._barWidth = barWidth;
+  canvas._gap = gap;
+  canvas._padding = padding;
+
+  // Add hover tooltip if not already attached
+  if (!canvas._hasTooltip) {
+    canvas._hasTooltip = true;
+    const tooltip = document.createElement("div");
+    tooltip.style.cssText = "display:none;position:fixed;background:var(--surface);border:1px solid var(--cyan);color:var(--fg);padding:4px 8px;border-radius:4px;font-size:10px;font-family:monospace;pointer-events:none;z-index:999;";
+    document.body.appendChild(tooltip);
+
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const barW = canvas._barWidth || 4;
+      const gap = canvas._gap || 1;
+      const pad = canvas._padding || 2;
+      const idx = Math.floor((mx - pad) / (barW + gap));
+      const d = canvas._chartData;
+      if (d && idx >= 0 && idx < d.length) {
+        const label = canvas._chartLabels?.[idx] || ("Bar " + (idx + 1));
+        tooltip.textContent = label + ": " + d[idx].toLocaleString();
+        tooltip.style.display = "block";
+        tooltip.style.left = (e.clientX + 12) + "px";
+        tooltip.style.top = (e.clientY - 20) + "px";
+      } else {
+        tooltip.style.display = "none";
+      }
+    });
+    canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+  }
+}
+
+// ── Fetch metrics ──
+// Client-side metric history — accumulates across fetches for richer charts
+const metricHistory = {
+  cpu: [], ram: [], gpu0vram: [], gpu0temp: [], gpu0util: [], gpu1vram: [], gpu1temp: [], gpu1util: []
+};
+const MAX_HISTORY = 60; // ~30 minutes at 30s intervals
+
+function pushMetric(key, values) {
+  if (!values || !values.length) return;
+  // Add the latest value(s)
+  values.forEach(v => metricHistory[key].push(v));
+  // Trim to max
+  while (metricHistory[key].length > MAX_HISTORY) metricHistory[key].shift();
+  return metricHistory[key];
+}
+
+async function fetchMetrics() {
+  try {
+    const resp = await fetch("/api/metrics");
+    const m = await resp.json();
+
+    // Forrest CPU
+    const cpuData = pushMetric("cpu", m.fleet?.cpu);
+    if (cpuData?.length) {
+      document.getElementById("val-cpu").textContent = cpuData[cpuData.length-1].toFixed(1) + "%";
+      drawLineChart("chart-cpu", cpuData, 100, "rgb(78,205,196)");
+    }
+
+    // Forrest RAM
+    const ramData = pushMetric("ram", m.fleet?.ramUsedGB);
+    const ramTotal = m.fleet?.ramTotalGB || 32;
+    if (ramData?.length) {
+      const last = ramData[ramData.length-1];
+      document.getElementById("val-ram").textContent = last.toFixed(1) + " / " + ramTotal.toFixed(0) + " GB";
+      drawLineChart("chart-ram", ramData, ramTotal, "rgb(74,222,128)");
+    }
+
+    // GPUs
+    ["gpu0","gpu1"].forEach((g, i) => {
+      const gd = m[g];
+      if (!gd) return;
+      const vramData = pushMetric(g + "vram", gd.vramUsedMB);
+      if (vramData?.length) {
+        const last = vramData[vramData.length-1];
+        document.getElementById("val-" + g).textContent = last.toFixed(0) + " / " + gd.vramTotalMB + " MB";
+        drawLineChart("chart-" + g + "-vram", vramData, gd.vramTotalMB, "rgb(232,168,56)");
+      }
+      const tempData = pushMetric(g + "temp", gd.temp);
+      if (tempData?.length) {
+        const last = tempData[tempData.length-1];
+        document.getElementById("val-" + g + "-temp").textContent = last + "°C";
+        drawLineChart("chart-" + g + "-temp", tempData, 90, "rgb(232,85,85)");
+      }
+      const utilData = pushMetric(g + "util", gd.util);
+      if (utilData?.length) {
+        const last = utilData[utilData.length-1];
+        document.getElementById("val-" + g + "-util").textContent = last + "%";
+        drawLineChart("chart-" + g + "-util", utilData, 100, "rgb(192,132,252)");
+      }
+    });
+
+    // Services
+    if (m.services) {
+      Object.entries(m.services).forEach(([k, v]) => {
+        const el = document.getElementById("svc-" + k);
+        if (el) {
+          el.style.color = v ? "var(--green)" : "var(--red)";
+          el.textContent = v ? "●" : "○";
+        }
+      });
+    }
+  } catch {}
+}
+
+// ── Fetch services ──
+async function fetchServices() {
+  try {
+    const resp = await fetch("/api/services");
+    const s = await resp.json();
+
+    // Synapse info
+    if (s.synapse?.status === "ok") {
+      const hrs = Math.floor(s.synapse.uptime/3600);
+      const mins = Math.floor((s.synapse.uptime%3600)/60);
+      document.getElementById("synapse-info").innerHTML =
+        `<span style="color:var(--green)">● UP</span> ${hrs}h ${mins}m | ${s.synapse.activeJobs} active | ${s.synapse.queueDepth} queued | ${s.fleetCrons || 0} crons`;
+    } else {
+      document.getElementById("synapse-info").innerHTML = '<span style="color:var(--red)">● DOWN</span>';
+    }
+
+    // Service grid
+    const grid = document.getElementById("services-grid");
+    const items = [
+      { name: "Synapse", status: s.synapse?.status === "ok" ? "up" : "down" },
+      { name: "Fleet", status: s.fleetSynapse === "active" ? "up" : "down" },
+      { name: "TTS", status: s.bc_tts === "active" ? "up" : "down" },
+      { name: "ImageGen", status: s.bc_imageGen === "active" ? "up" : "down" },
+      { name: "Whisper", status: s.bc_whisper === "active" ? "up" : "down" },
+      { name: "Embedding", status: s.bc_embedding === "active" ? "up" : "down" },
+      { name: "TTS Wrap", status: s.bc_ttsWrapper === "active" ? "up" : "down" },
+      { name: `ImgModel`, status: s.bc_img_h?.model_loaded ? "up" : "unknown" },
+    ];
+    const html = items.map(i =>
+      `<div class="svc-item"><div class="svc-dot ${i.status}"></div>${i.name}</div>`
+    ).join("");
+    grid.innerHTML = html;
+    // Mirror to metrics panel
+    const mg = document.getElementById("metrics-services-grid");
+    if (mg) mg.innerHTML = html;
+    const msi = document.getElementById("metrics-synapse-info");
+    if (msi) msi.innerHTML = document.getElementById("synapse-info").innerHTML;
+    // Mobile status bar
+    const mss = document.getElementById("mobile-synapse-status");
+    if (mss) {
+      const up = s.synapse?.status === "ok";
+      const svcUp = items.filter(i => i.status === "up").length;
+      mss.innerHTML = `<span style="color:${up?"var(--green)":"var(--red)"}">\u25cf</span> Synapse ${up?"UP":"DOWN"} | ${svcUp}/${items.length} services`;
+    }
+  } catch (e) { console.error("Services:", e); }
+}
+
+// ── Logs ──
+async function fetchLogs() {
+  try {
+    const resp = await fetch(`/api/logs?date=${currentDate}`);
+    const { logs } = await resp.json();
+    for (const agent of AGENTS) renderLog(agent, logs[agent] || "No log");
+  } catch (e) { console.error("Logs:", e); }
+}
+function renderLog(agent, content) {
+  const el = document.getElementById(`log-${agent}`);
+  const lines = content.split("\n");
+  let html = "", count = 0;
+  for (const line of lines) {
+    let cls = "";
+    if (/CRON DONE|Task complete/.test(line)) { cls="cron-done"; count++; }
+    else if (/CRON FAILED|Task failed|FAILED|ERROR/.test(line)) { cls="cron-fail"; count++; }
+    else if (/Task started|CRON START/.test(line)) { cls="task"; count++; }
+    else if (/Heartbeat|HEARTBEAT/.test(line)) cls="heartbeat";
+    else if (/^##/.test(line)) cls="heading";
+    html += `<div class="line ${cls}">${esc(line)}</div>`;
+  }
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+  document.getElementById(`stat-${agent}`).textContent = `${count}`;
+}
+function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+async function shareFile(url, filename) {
+  try {
+    // Fetch the file as a blob
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const file = new File([blob], filename, { type: blob.type });
+
+    // Try Web Share API with file (iOS Chrome supports this)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    }
+
+    // Fallback: try share with just URL
+    if (navigator.share) {
+      await navigator.share({ title: filename, url: window.location.origin + url });
+      return;
+    }
+
+    // Final fallback: direct download
+    const a = document.createElement("a");
+    a.href = url + "?download=1";
+    a.download = filename;
+    a.click();
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      // User cancelled share — that's fine, only alert on real errors
+      const a = document.createElement("a");
+      a.href = url + "?download=1";
+      a.download = filename;
+      a.click();
+    }
+  }
+}
+
+// ── Spawn ──
+async function spawnTask() {
+  const agent = document.getElementById("spawn-agent").value;
+  const task = document.getElementById("spawn-task").value.trim();
+  if (!task) return;
+  const btn = document.getElementById("spawn-btn");
+  const result = document.getElementById("spawn-result");
+  btn.disabled = true; btn.textContent = "Running...";
+  result.style.display = "block"; result.textContent = "Waiting...";
+  try {
+    const resp = await fetch(`/api/spawn/${agent}`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({task}) });
+    const data = await resp.json();
+    result.textContent = data.result || JSON.stringify(data, null, 2);
+    fetchLogs();
+  } catch (e) { result.textContent = `Error: ${e.message}`; }
+  finally { btn.disabled = false; btn.textContent = "Run"; }
+}
+
+// ── Upload ──
+const uz = document.getElementById("upload-zone"), fi = document.getElementById("file-input");
+uz.addEventListener("dragover", e => { e.preventDefault(); uz.classList.add("dragover"); });
+uz.addEventListener("dragleave", () => uz.classList.remove("dragover"));
+uz.addEventListener("drop", e => { e.preventDefault(); uz.classList.remove("dragover"); uploadFiles(e.dataTransfer.files); });
+fi.addEventListener("change", () => uploadFiles(fi.files));
+document.addEventListener("paste", e => { for (const i of (e.clipboardData?.items||[])) { if(i.kind==="file") uploadFiles([i.getAsFile()]); }});
+async function uploadFiles(files) {
+  for (const f of files) { const fd = new FormData(); fd.append("file",f); await fetch("/api/upload",{method:"POST",body:fd}); }
+  fetchUploads();
+}
+async function fetchUploads() {
+  try {
+    const files = await (await fetch("/api/uploads")).json();
+    document.getElementById("file-list").innerHTML = files.slice(0,15).map(f => {
+      const sz = f.size>1048576?`${(f.size/1048576).toFixed(1)}M`:`${(f.size/1024).toFixed(0)}K`;
+      return `<div class="file-item"><a href="${f.url}" target="_blank">${f.name.substring(0,28)}</a><span>${sz}</span></div>`;
+    }).join("");
+  } catch {}
+}
+
+
+// __ Tasks __
+function toggleConvMode() {
+  const on = document.getElementById("conv-mode").checked;
+  document.getElementById("task-agent").style.display = on ? "none" : "";
+  document.getElementById("conv-agents").style.display = on ? "flex" : "none";
+}
+
+async function createTask() {
+  const isConv = document.getElementById("conv-mode").checked;
+  const agent = document.getElementById("task-agent").value;
+  const desc = document.getElementById("task-desc").value.trim();
+  if (!desc) { alert("Enter a task description before creating."); return; }
+  const format = document.getElementById("task-format").value;
+  const timeline = document.getElementById("task-timeline").value;
+  const scheduleDateEl = document.getElementById("task-schedule-date");
+  const scheduledDate = timeline === "scheduled" && scheduleDateEl.value ? new Date(scheduleDateEl.value).toISOString() : null;
+  const fileInput = document.getElementById("task-file");
+
+  if (!desc) return;
+
+  // Clear form immediately — no waiting
+  document.getElementById("task-desc").value = "";
+  document.getElementById("task-timeline").value = "immediate";
+  scheduleDateEl.style.display = "none"; scheduleDateEl.value = "";
+  const hasFile = fileInput.files.length > 0;
+  const file = hasFile ? fileInput.files[0] : null;
+  fileInput.value = "";
+
+  // Close the form
+  const toggle = document.getElementById("task-form-toggle");
+  if (toggle) toggle.removeAttribute("open");
+
+  // Build payload
+  const payload = { title: "", description: desc, agent, attachments: [], outputFormat: format, timeline, scheduledDate };
+  let convMode = false;
+
+  if (isConv) {
+    const agents = [...document.querySelectorAll(".conv-agent-cb:checked")].map(cb => cb.value);
+    if (agents.length === 0) { alert("Select at least one agent"); return; }
+    const agentPattern = AGENTS_CONFIG.map(a => a.id).join("|");
+    const mention = desc.match(new RegExp("@(" + agentPattern + ")", "i"));
+    payload.agent = mention ? mention[1].toLowerCase() : agents[0];
+    payload.mode = "conversation";
+    payload.agents = agents;
+    payload.rounds = parseInt(document.getElementById("task-rounds")?.value || "1") || 1;
+    convMode = true;
+  }
+
+  // Upload file if needed, then create task — all in background
+  (async () => {
+    if (file) {
+      const fd = new FormData(); fd.append("file", file);
+      try { const u = await (await fetch("/api/upload",{method:"POST",body:fd})).json(); payload.attachments.push({filename:u.filename,url:u.url}); } catch {}
+    }
+
+    try {
+      const resp = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const newTask = await resp.json();
+
+      if (convMode && newTask?.id) {
+        expandedTasks.add(newTask.id);
+      }
+      fetchTasks();
+
+      // Poll for conversation updates
+      if (convMode && newTask?.id) {
+        const poll = setInterval(async () => {
+          await fetchTasks();
+          const ts = await (await fetch("/api/tasks")).json();
+          const t = ts.find(x => x.id === newTask.id);
+          if (t && t.status !== "in_progress" && t.status !== "running") {
+            clearInterval(poll);
+          }
+        }, 3000);
+        setTimeout(() => clearInterval(poll), 600000);
+      }
+    } catch (e) {
+      console.error("createTask:", e);
+    }
+  })();
+}
+
+function insertMention(taskId, agent) {
+  const input = document.getElementById("reply-" + taskId);
+  if (!input) return;
+  const prefix = input.value && !input.value.endsWith(" ") ? " " : "";
+  input.value += prefix + "@" + agent + " ";
+  input.focus();
+}
+
+function convMessage(id) {
+  const input = document.getElementById("reply-" + id);
+  const roundsSelect = document.getElementById("rounds-" + id);
+  const message = input?.value?.trim();
+  if (!message) return;
+  const rounds = parseInt(roundsSelect?.value || "1") || 1;
+  input.value = "";
+  expandedTasks.add(id);
+
+  // Fire immediately, poll for results
+  fetch(`/api/tasks/${id}/message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, rounds }),
+  }).catch(e => console.error("convMessage:", e));
+
+  // Poll for updates as agents respond
+  fetchTasks();
+  const poll = setInterval(async () => {
+    await fetchTasks();
+    try {
+      const ts = await (await fetch("/api/tasks")).json();
+      const t = ts.find(x => x.id === id);
+      if (t && t.status !== "in_progress" && t.status !== "running") clearInterval(poll);
+    } catch {}
+  }, 3000);
+  setTimeout(() => clearInterval(poll), 600000);
+}
+
+async function retryTask(id) {
+  await fetch("/api/tasks/"+id+"/retry",{method:"POST"});
+  await fetch("/api/tasks/"+id+"/run",{method:"POST"});
+  fetchTasks();
+  const poll = setInterval(async()=>{const ts=await(await fetch("/api/tasks")).json();const t=ts.find(x=>x.id===id);if(t&&t.status!=="running"){clearInterval(poll);expandedTasks.add(id);fetchTasks();}},5000);
+}
+
+async function replyTask(id) {
+  const input = document.getElementById("reply-"+id);
+  const fmtSelect = document.getElementById("replyfmt-"+id);
+  const fileInput = document.getElementById("replyfile-"+id);
+  const agentSelect = document.getElementById("replyagent-"+id);
+  const content = input.value.trim();
+  if (!content) return;
+
+  // Format instruction
+  let fullContent = content;
+  const fmt = fmtSelect ? fmtSelect.value : "";
+  const modelSelect = document.getElementById('replymodel-'+id);
+  const model = modelSelect ? modelSelect.value : null;
+  const handoffAgent = agentSelect ? agentSelect.value : "";
+  if (fmt) fullContent += "\nOutput format: " + fmt;
+
+  // Upload file if attached
+  let attachments = [];
+  if (fileInput && fileInput.files.length > 0) {
+    const fd = new FormData(); fd.append("file", fileInput.files[0]);
+    try { const u = await (await fetch("/api/upload",{method:"POST",body:fd})).json(); attachments.push({filename:u.filename,url:u.url}); } catch(e) {}
+  }
+
+  if (handoffAgent) {
+    // Agent handoff — create new task for the target agent with full context from this thread
+    const tasks = await (await fetch("/api/tasks")).json();
+    const task = tasks.find(x => x.id === id);
+    const originalPrompt = task ? (task.messages.find(m => m.role === "user") || {}).content || "" : "";
+    const agentResults = task ? task.messages.filter(m => m.role === "agent" && !m.content.startsWith("Error:")).map(m => m.content).join("\n---\n") : "";
+    const files = task ? task.messages.flatMap(m => (m.files || []).map(f => f.path || f.name)).filter(Boolean) : [];
+
+    let handoffPrompt = `Context from a previous conversation with ${task ? task.agent : "another agent"}:\n\n`;
+    handoffPrompt += `Original task: ${originalPrompt}\n\n`;
+    if (agentResults) handoffPrompt += `Results so far:\n${agentResults.substring(0, 2000)}\n\n`;
+    if (files.length) handoffPrompt += `Output files produced:\n${files.map(f => "- " + f).join("\n")}\n\n`;
+    handoffPrompt += `Richard's instruction to you:\n${fullContent}`;
+
+    // Add handoff note to original thread (no execution — just a note)
+    await fetch("/api/tasks/"+id+"/note", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ content: `[Handed off to ${handoffAgent}: ${content}]` })
+    });
+
+    // Create new task for target agent
+    const newTask = await (await fetch("/api/tasks", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ agent: handoffAgent, description: handoffPrompt, outputFormat: fmt || "text", source: "handoff" })
+    })).json();
+
+    // Run it
+    await fetch("/api/tasks/"+newTask.id+"/run", { method: "POST" });
+
+    input.value = "";
+    if (fileInput) fileInput.value = "";
+    expandedTasks.add(newTask.id);
+    fetchTasks();
+
+    // Poll for completion
+    const poll = setInterval(async()=>{
+      const ts = await(await fetch("/api/tasks")).json();
+      const t = ts.find(x=>x.id===newTask.id);
+      if(t && t.status!=="running"){clearInterval(poll);expandedTasks.add(newTask.id);fetchTasks();}
+    }, 5000);
+  } else {
+    // Same agent — reply with session continuation
+    await fetch("/api/tasks/"+id+"/reply", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ content: fullContent, attachments, model: model || undefined })
+    });
+    input.value = "";
+    if (fileInput) fileInput.value = "";
+    fetchTasks();
+
+    // Poll for completion
+    const poll = setInterval(async()=>{
+      const ts = await(await fetch("/api/tasks")).json();
+      const t = ts.find(x=>x.id===id);
+      if(t && t.status!=="running"){clearInterval(poll);expandedTasks.add(id);fetchTasks();}
+    }, 5000);
+  }
+}
+
+
+
+// __ Search __
+function highlight(text, query) {
+  if (!query || query.length < 2) return text;
+  const regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return text.replace(regex, '<mark style="background:var(--amber);color:var(--bg);border-radius:2px;padding:0 2px;">$1</mark>');
+}
+
+function filterTasks() {
+  fetchTasks();
+}
+
+// __ Task expand/collapse __
+const expandedTasks = new Set();
+function toggleTask(id) {
+  if (expandedTasks.has(id)) expandedTasks.delete(id);
+  else expandedTasks.add(id);
+  fetchTasks();
+}
+
+async function runTask(id) {
+  await fetch("/api/tasks/"+id+"/run",{method:"POST"});
+  fetchTasks();
+  const poll = setInterval(async()=>{const ts=await(await fetch("/api/tasks")).json();const t=ts.find(x=>x.id===id);if(t&&t.status!=="running"){clearInterval(poll);expandedTasks.add(id);fetchTasks();}},5000);
+}
+async function deleteTask(id) { await fetch("/api/tasks/"+id,{method:"DELETE"}); fetchTasks(); }
+async function copyThread(id) {
+  const tasks = await (await fetch("/api/tasks")).json();
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  const lines = [`# ${t.title || "Task " + t.id}`, `ID: ${t.id} | Agent: ${t.agent} | Status: ${t.status} | Mode: ${t.mode || "task"}`, `Created: ${t.createdAt || ""}`, ""];
+  for (const m of (t.messages || [])) {
+    const ts = m.timestamp || m.ts || "";
+    const dt = ts ? new Date(ts).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) + " — " : "";
+    if (m.role === "user") lines.push(`**You** (${dt}): ${m.content || ""}`);
+    else if (m.role === "system") lines.push(`--- ${m.content || ""} ---`);
+    else if (m.role === "error") lines.push(`**ERROR** (${m.agent || ""}): ${m.content || ""}`);
+    else lines.push(`**${(m.agent || t.agent).toUpperCase()}** (${dt}): ${m.content || ""}`);
+    lines.push("");
+  }
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    // Brief visual feedback
+    const btn = document.querySelector(`[data-copy="${id}"]`);
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "\u2398 Copy", 1500); }
+  } catch {
+    // Fallback for iOS/non-HTTPS
+    const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    const btn = document.querySelector(`[data-copy="${id}"]`);
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "\u2398 Copy", 1500); }
+  }
+}
+async function setTaskStatus(id, status) { await fetch("/api/tasks/"+id,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})}); fetchTasks(); }
+async function closeTask(id) { setTaskStatus(id, "closed"); }
+async function reopenTask(id) { setTaskStatus(id, "active"); }
+async function fetchTasks() {
+  try {
+    const tasks = await (await fetch("/api/tasks")).json();
+    const el = document.getElementById("task-list");
+    if (!tasks.length) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No tasks yet</div>'; return; }
+
+    const searchInput = document.getElementById("task-search");
+    const filterSelect = document.getElementById("task-search-filter");
+    const sourceSelect = document.getElementById("task-search-source");
+    const query = (searchInput ? searchInput.value.trim().toLowerCase() : "");
+    const statusFilter = filterSelect ? filterSelect.value : "all";
+    const sourceFilter = sourceSelect ? sourceSelect.value : "all";
+    const agentSelect = document.getElementById("task-search-agent");
+    const agentFilter = agentSelect ? agentSelect.value : "all";
+
+    // Date range filter
+    const range = document.getElementById("range-picker")?.value || "today";
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let cutoff = null, ceiling = null;
+    if (range === "today") { cutoff = todayStart; }
+    else if (range === "yesterday") { cutoff = new Date(todayStart - 86400000); ceiling = todayStart; }
+    else if (range === "7d") cutoff = new Date(now - 7 * 86400000);
+    else if (range === "14d") cutoff = new Date(now - 14 * 86400000);
+    else if (range === "30d") cutoff = new Date(now - 30 * 86400000);
+    else if (range === "365d") cutoff = new Date(now - 365 * 86400000);
+
+    // Filter tasks — incomplete/deferred always carry forward
+    let filtered = tasks;
+    if (cutoff) {
+      filtered = filtered.filter(t => {
+        // Incomplete and deferred always show (carry forward)
+        if (t.status === "incomplete" || t.status === "deferred") return true;
+        const created = new Date(t.createdAt || 0);
+        if (created < cutoff) return false;
+        if (ceiling && created >= ceiling) return false;
+        return true;
+      });
+    }
+    // Sort: incomplete/deferred first, then by date
+    filtered.sort((a, b) => {
+      const aCarry = a.status === "incomplete" || a.status === "deferred" ? 0 : 1;
+      const bCarry = b.status === "incomplete" || b.status === "deferred" ? 0 : 1;
+      if (aCarry !== bCarry) return aCarry - bCarry;
+      return 0; // preserve existing order within groups
+    });
+    if (agentFilter !== "all") {
+      filtered = filtered.filter(t => t.agent === agentFilter);
+    }
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(t => t.status === statusFilter);
+    }
+    if (sourceFilter !== "all") {
+      filtered = filtered.filter(t => (t.source || "user") === sourceFilter);
+    }
+    if (query) {
+      filtered = filtered.filter(t => {
+        if ((t.title||"").toLowerCase().includes(query)) return true;
+        return (t.messages||[]).some(m => (m.content||"").toLowerCase().includes(query) || (m.title||"").toLowerCase().includes(query));
+      });
+    }
+
+    const hidden = tasks.length - filtered.length;
+    if (!filtered.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">'+(query ? 'No tasks matching "'+esc(query)+'"' : 'No tasks in this time range')+(hidden ? ' ('+hidden+' older tasks — change range to see)' : '')+'</div>';
+      return;
+    }
+
+    const hiddenNote = hidden > 0 ? '<div style="text-align:center;padding:8px;font-size:10px;color:var(--muted);">Showing '+filtered.length+' of '+tasks.length+' tasks ('+hidden+' older)</div>' : '';
+
+    el.innerHTML = filtered.map(t => {
+      const sc = {pending:"var(--amber)",scheduled:"var(--purple)",running:"var(--blue)",complete:"var(--green)",failed:"var(--red)",active:"var(--cyan)",in_progress:"var(--blue)",closed:"var(--green)",incomplete:"var(--amber)",deferred:"var(--purple)"};
+      const si = {pending:"\u25cf",scheduled:"\ud83d\udcc5",running:"\u23f3",complete:"\u2713",failed:"\u2717",active:"\u25cb",in_progress:"\u23f3",closed:"\u2713",incomplete:"\u25d0",deferred:"\ud83d\udcc5"};
+      const ac = AGENT_COLORS;
+      const isOpen = expandedTasks.has(t.id) || (query && query.length > 0);
+
+      const firstMsg = (t.messages||[])[0];
+      const preview = firstMsg ? esc(firstMsg.content).substring(0, 80) : "";
+      const msgCount = (t.messages||[]).length;
+
+      // Header
+      const isConv = t.mode === "conversation";
+      const titleText = highlight(esc(t.title||preview||"New Task"), query);
+      const convBadge = isConv ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:var(--cyan);color:var(--bg);font-weight:600;margin-left:4px;">conv</span>' : '';
+      const agentLabel = isConv ? (t.agents||[]).join(", ") : t.agent;
+      const hdr = '<div onclick="toggleTask(\''+t.id+'\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;">'
+        +'<div style="flex:1;min-width:0;">'
+        +'<span style="color:'+sc[t.status]+';font-size:13px;">'+si[t.status]+'</span> '
+        +'<strong style="font-size:13px;">'+titleText+'</strong> '
+        +convBadge
+        +'<span style="font-size:10px;color:var(--muted);margin-left:4px;">'+agentLabel+' \u2014 '+msgCount+' msg \u2014 '+(t.createdAt?new Date(t.createdAt).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"")+'</span>'
+        +(t.source && t.source !== "user" ? ' <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:'+(t.source==="cron"?"var(--purple)":t.source==="heartbeat"?"var(--blue)":"var(--muted)")+';color:var(--bg);font-weight:600;">'+t.source+'</span>' : "")
+        +'</div>'
+        +'<span style="color:var(--muted);font-size:12px;flex-shrink:0;">'+(isOpen?"\u25b2":"\u25bc")+'</span>'
+        +'</div>';
+      // Action buttons — only shown when expanded
+      const actionBar = '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">'
+        +(t.status==="pending"?'<button onclick="runTask(\''+t.id+'\')" style="background:var(--cyan);color:var(--bg);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600;">Run</button>':"")
+        +(t.status==="failed"?'<button onclick="retryTask(\''+t.id+'\')" style="background:var(--amber);color:var(--bg);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600;">Retry</button>':"")
+        +(t.status==="active"||t.status==="failed"?'<button onclick="setTaskStatus(\''+t.id+'\',\'incomplete\')" style="background:none;color:var(--amber);border:1px solid var(--amber);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;">\u25d0 Todo</button>':"")
+        +(t.status==="active"||t.status==="failed"?'<button onclick="setTaskStatus(\''+t.id+'\',\'closed\')" style="background:none;color:var(--green);border:1px solid var(--green);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;">\u2713 Done</button>':"")
+        +(t.status==="incomplete"?'<button onclick="setTaskStatus(\''+t.id+'\',\'closed\')" style="background:none;color:var(--green);border:1px solid var(--green);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;">\u2713 Done</button>':"")
+        +(t.status==="incomplete"||t.status==="complete"||t.status==="closed"||t.status==="deferred"?'<button onclick="reopenTask(\''+t.id+'\')" style="background:none;color:var(--cyan);border:1px solid var(--cyan);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;">\u21bb Open</button>':"")
+        +'<span style="flex:1;"></span>'
+        +'<button data-copy="'+t.id+'" onclick="copyThread(\''+t.id+'\')" style="background:none;color:var(--muted);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Copy thread">\u2398 Copy</button>'
+        +'<button onclick="deleteTask(\''+t.id+'\')" style="background:none;color:var(--red);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Delete">\u00d7</button>'
+        +'</div>';
+
+      let body = "";
+      if (isOpen) {
+        const msgs = (t.messages||[]).map(m => {
+          // Skip messages that don't match role filter when searching
+          if (query && roleFilter === "user" && m.role !== "user") return "";
+          if (query && roleFilter === "agent" && m.role !== "agent") return "";
+
+          // Check if this message matches search (for visual indicator)
+          const matches = query && (m.content||"").toLowerCase().includes(query);
+          const matchBorder = matches ? "border:1px solid var(--cyan);" : "";
+
+          if (m.role === "system") {
+            return '<div style="margin:8px 0;padding:4px 10px;text-align:center;font-size:10px;color:var(--purple);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">'
+              +esc(m.content)+'</div>';
+          } else if (m.role === "error") {
+            return '<div style="margin:6px 0;padding:8px;background:var(--bg);border-radius:6px;border-left:3px solid var(--red);">'
+              +'<div style="font-size:10px;color:var(--red);margin-bottom:3px;">Error'+(m.agent?' \u2014 '+m.agent:'')+'</div>'
+              +'<div style="font-size:12px;color:var(--red);">'+esc(m.content)+'</div></div>';
+          } else if (m.role === "user") {
+            const atts = (m.attachments||[]).map(a => '<div style="font-size:10px;color:var(--blue);">\ud83d\udcce '+esc(a.filename.substring(0,40))+'</div>').join("");
+            return '<div style="margin:6px 0;padding:8px;background:var(--bg);border-radius:6px;border-left:3px solid var(--cyan);'+matchBorder+'">'
+              +'<div style="font-size:10px;color:var(--cyan);margin-bottom:3px;">You \u2014 '+new Date(m.timestamp).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+'</div>'
+              +'<div style="font-size:12px;white-space:pre-wrap;">'+highlight(esc(m.content), query)+'</div>'
+              +atts+'</div>';
+          } else {
+            const msgAgent = m.agent || t.agent;
+            const msgColor = ac[msgAgent] || "var(--amber)";
+            const files = (m.files||[]).map(f => '<a href="/api/tasks/'+t.id+'/download/'+f.name+'" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;background:var(--border);border-radius:3px;color:var(--blue);font-size:11px;text-decoration:none;">\ud83d\udcc4 '+f.name+'</a>').join("");
+            return '<div style="margin:6px 0;padding:8px;background:var(--surface2);border-radius:6px;border-left:3px solid '+msgColor+';'+matchBorder+'">'
+              +'<div style="font-size:10px;color:'+msgColor+';margin-bottom:3px;">'+msgAgent+(m.title?" \u2014 "+highlight(esc(m.title), query):"")+" \u2014 "+new Date(m.timestamp || m.ts).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+'</div>'
+              +'<div style="font-size:12px;white-space:pre-wrap;">'+highlight(esc(m.content||""), query)+'</div>'
+              +(files?'<div style="margin-top:6px;">'+files+'</div>':"")
+              +'</div>';
+          }
+        }).filter(Boolean).join("");
+
+        let reply = "";
+        if ((t.status === "complete" || t.status === "active" || t.status === "failed" || t.status === "closed" || isConv) && t.status !== "running") {
+          const allAgents = AGENTS_CONFIG.map(a => a.id);
+          const activeAgents = t.agents || [t.agent];
+          reply = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);">'
+            // Agent quick-tap buttons
+            +'<div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;flex-wrap:wrap;">'
+            +allAgents.map(a => {
+              const inThread = activeAgents.includes(a);
+              const names = AGENT_NAMES;
+              const colors = AGENT_COLORS;
+              return '<button onclick="insertMention(\''+t.id+'\',\''+a+'\')" style="font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:var(--bg);color:'+colors[a]+';touch-action:manipulation;">@'+names[a]+(inThread?' \u00b7':'')+'</button>';
+            }).join("")
+            +'<span style="margin-left:auto;display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted);">'
+            +'Rds:<select id="rounds-'+t.id+'" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 4px;border-radius:3px;font-family:inherit;font-size:10px;margin-left:2px;">'
+            +'<option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>'
+            +'</span>'
+            +'</div>'
+            // Input + send
+            +'<div style="display:flex;gap:6px;align-items:center;">'
+            +'<input id="reply-'+t.id+'" placeholder="Type message..." style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:4px;font-family:inherit;font-size:13px;" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey)convMessage(\''+t.id+'\')">'
+            +'<button onclick="convMessage(\''+t.id+'\')" style="background:var(--cyan);color:var(--bg);border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;">Send</button>'
+            +'</div>'
+            +'</div>';
+        }
+
+        body = '<div style="margin-top:8px;">'+msgs+reply+actionBar+'</div>';
+      }
+
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;">'
+        +hdr+body+'</div>';
+    }).join("") + hiddenNote;
+  } catch(e) { console.error("Tasks:",e); }
+}
+
+
+// __ Sidebar toggle __
+document.getElementById("sidebar-btn")?.addEventListener("click", function() {
+  const sc = document.querySelector(".sidebar-content");
+  sc.classList.toggle("open");
+  this.innerHTML = sc.classList.contains("open") ? "Menu &#9650;" : "Menu &#9660;";
+});
+
+// ── Range selector ──
+let queryRange = "today";
+function setRange(val) {
+  queryRange = val;
+  if (document.getElementById("panel-tasks").classList.contains("active")) fetchTasks();
+  if (document.getElementById("panel-queries").classList.contains("active")) { fetchQueryStats(); fetchQueryLog(); }
+}
+
+// ── Query Log ──
+let queryPage = 1;
+async function fetchInteractions() {
+  const dateVal = document.getElementById("int-date-filter")?.value || "today";
+  const agent = document.getElementById("int-agent-filter")?.value || "";
+  const now = new Date();
+  let intDate = currentDate;
+  if (dateVal === "today") intDate = now.toLocaleDateString("en-CA");
+  if (dateVal === "yesterday") intDate = new Date(now - 86400000).toLocaleDateString("en-CA");
+  try {
+    const r = await fetch(`/api/interactions?date=${intDate}${agent ? `&agent=${agent}` : ""}`);
+    const data = await r.json();
+    document.getElementById("int-count").textContent = `${data.total || 0} interactions`;
+    const list = document.getElementById("interactions-list");
+    if (!data.entries || data.entries.length === 0) {
+      list.innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px;">No interactions for ${currentDate}</div>`;
+      return;
+    }
+    const agentColors = AGENT_COLORS;
+    list.innerHTML = data.entries.slice().reverse().map(e => {
+      const time = e.ts ? new Date(e.ts).toLocaleTimeString("en-GB", { hour12: false }) : "??:??";
+      const color = agentColors[e.agent] || "var(--muted)";
+      const statusColor = e.status === "error" ? "var(--red)" : "var(--green)";
+      const cost = e.cost ? `$${e.cost.toFixed(4)}` : "";
+      const tokens = (e.tokens_in || e.tokens_out) ? `${(e.tokens_in||0).toLocaleString()}in / ${(e.tokens_out||0).toLocaleString()}out` : "";
+      const dur = e.duration_ms ? `${(e.duration_ms/1000).toFixed(1)}s` : "";
+      const promptPreview = (e.prompt || "").replace(/<[^>]*>/g, "").substring(0, 300);
+      return `<details style="margin-bottom:6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;">
+        <summary style="padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:11px;">
+          <span style="color:var(--muted);font-variant-numeric:tabular-nums;min-width:55px;">${time}</span>
+          <span style="color:${color};font-weight:600;min-width:65px;">${e.agent}</span>
+          <span style="color:${statusColor};font-size:9px;">\u25cf</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);">${promptPreview}</span>
+          <span style="color:var(--muted);font-size:10px;white-space:nowrap;">${dur}</span>
+          <span style="color:var(--amber);font-size:10px;white-space:nowrap;">${cost}</span>
+        </summary>
+        <div style="padding:10px;border-top:1px solid var(--border);font-size:11px;">
+          <div style="margin-bottom:8px;">
+            <div style="color:var(--muted);font-size:9px;text-transform:uppercase;margin-bottom:4px;">Prompt</div>
+            <div style="background:var(--bg);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;">${escHtml(e.prompt || "")}</div>
+          </div>
+          <div style="margin-bottom:8px;">
+            <div style="color:var(--muted);font-size:9px;text-transform:uppercase;margin-bottom:4px;">Response</div>
+            <div style="background:var(--bg);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-word;max-height:400px;overflow-y:auto;">${escHtml(e.response || "")}</div>
+          </div>
+          <div style="display:flex;gap:12px;color:var(--muted);font-size:10px;">
+            <span>Tokens: ${tokens}</span>
+            <span>Turns: ${e.num_turns || "?"}</span>
+            <span>Model: ${e.model || "?"}</span>
+            <span>Source: ${e.source || "?"}</span>
+          </div>
+        </div>
+      </details>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("interactions-list").innerHTML = `<div style="color:var(--red);padding:20px;">Error: ${e.message}</div>`;
+  }
+}
+
+async function fetchQueryStats() {
+  try {
+    const r = await fetch("/api/query-stats?range=" + queryRange);
+    const s = await r.json();
+    document.getElementById("qs-today-count").textContent = s.today?.count || 0;
+    document.getElementById("qs-today-avg").textContent = "avg " + Math.round(s.today?.avg_duration || 0) + "ms";
+    document.getElementById("qs-week-count").textContent = s.week?.count || 0;
+    document.getElementById("qs-week-avg").textContent = "avg " + Math.round(s.week?.avg_duration || 0) + "ms";
+    document.getElementById("qs-month-count").textContent = s.month?.count || 0;
+    document.getElementById("qs-month-avg").textContent = "avg " + Math.round(s.month?.avg_duration || 0) + "ms";
+    const rate = s.today?.success_rate;
+    const rateEl = document.getElementById("qs-success");
+    rateEl.textContent = (rate != null ? Math.round(rate) : "--") + "%";
+    rateEl.style.color = rate >= 95 ? "var(--green)" : rate >= 80 ? "var(--amber)" : "var(--red)";
+    document.getElementById("qs-by-tool").innerHTML = (s.by_tool || []).map(t =>
+      t.tool_name.replace("_"," ") + ": " + t.count
+    ).join(" · ");
+    // Client breakdown
+    const clientEl = document.getElementById("qs-by-client");
+    if (clientEl) clientEl.innerHTML = (s.by_client || []).map(c =>
+      '<span style="color:var(--cyan);">' + c.client_id + '</span>: ' + c.count
+    ).join(" · ");
+    // V2 adoption
+    const v2Tools = ["build_query","raw_query","find_relevant_schema","find_similar_queries","query_template","query_lab_pivot","query_feedback","describe_view","list_views","search_technical_docs","query_feedback"];
+    const v2Count = (s.by_tool || []).filter(t => v2Tools.includes(t.tool_name)).reduce((s,t) => s + t.count, 0);
+    const totalCount = (s.by_tool || []).reduce((s,t) => s + t.count, 0);
+    const v2Pct = totalCount > 0 ? Math.round(v2Count / totalCount * 100) : 0;
+    const v2El = document.getElementById("qs-v2-pct");
+    if (v2El) { v2El.textContent = v2Pct + "%"; v2El.style.color = v2Pct >= 80 ? "var(--green)" : v2Pct >= 50 ? "var(--yellow)" : "var(--red)"; }
+    // Hourly chart — queries/hour
+    const hourlyData = (s.hourly || []).map(h => h.count);
+    const hourlyLabels = (s.hourly || []).map(h => h.hour?.substring(11, 16) || "");
+    if (hourlyData.length) drawChart("chart-query-hourly", hourlyData, Math.max(...hourlyData, 1), "#4ecdc4", true, hourlyLabels);
+    // Duration chart — avg ms/hour
+    const durData = (s.hourly || []).map(h => Math.round(h.avg_duration));
+    const durLabels = (s.hourly || []).map(h => (h.hour?.substring(11, 16) || "") + " avg");
+    if (durData.length) drawChart("chart-query-duration", durData, Math.max(...durData, 1), "#e8a838", true, durLabels);
+    // Daily chart — queries/day
+    const dailyData = (s.daily || []).map(d => d.count);
+    const dailyLabels = (s.daily || []).map(d => d.date?.substring(5) || "");
+    if (dailyData.length) drawChart("chart-query-daily", dailyData, Math.max(...dailyData, 1), "#4ecdc4", true, dailyLabels);
+    // Tool breakdown bar chart
+    drawToolChart(s.by_tool || []);
+  } catch {}
+}
+
+function drawToolChart(tools) {
+  const canvas = document.getElementById("chart-query-tools");
+  if (!canvas || !tools.length) return;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  const total = tools.reduce((s, t) => s + t.count, 0);
+  const colors = { read_data: "#4ecdc4", list_table: "#e8a838", describe_table: "#c084fc" };
+  const barH = Math.min(18, (rect.height - 4) / tools.length - 2);
+  tools.forEach((t, i) => {
+    const y = i * (barH + 3) + 2;
+    const w = total ? (t.count / total) * (rect.width - 80) : 0;
+    ctx.fillStyle = colors[t.tool_name] || "#666680";
+    ctx.fillRect(0, y, w, barH);
+    ctx.fillStyle = "#c8c8d0";
+    ctx.font = `${Math.min(11, barH - 2)}px monospace`;
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${t.tool_name.replace("_"," ")} (${t.count})`, w + 4, y + barH / 2);
+  });
+}
+
+async function fetchQueryLog(page) {
+  if (page) queryPage = page;
+  try {
+    const r = await fetch(`/api/query-log?page=${queryPage}&limit=50`);
+    const d = await r.json();
+    const body = document.getElementById("query-log-body");
+    const cards = document.getElementById("query-log-cards");
+    if (!d.queries?.length) {
+      body.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted);">No queries logged yet</td></tr>';
+      cards.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">No queries logged yet</div>';
+      document.getElementById("query-log-pagination").innerHTML = "";
+      return;
+    }
+    // Desktop table
+    body.innerHTML = d.queries.map(q => {
+      const time = new Date(q.timestamp).toLocaleTimeString();
+      const dur = q.duration_ms;
+      const durColor = dur < 500 ? "var(--green)" : dur < 2000 ? "var(--amber)" : "var(--red)";
+      const toolColors = { read_data: "var(--cyan)", list_table: "var(--amber)", describe_table: "var(--purple)" };
+      const tc = toolColors[q.tool_name] || "var(--muted)";
+      const preview = (q.query_text || "").substring(0, 80) + (q.query_text?.length > 80 ? "..." : "");
+      const status = q.success ? '<span style="color:var(--green)">OK</span>' : '<span style="color:var(--red)">ERR</span>';
+      return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onclick="toggleQueryDetail(${q.id},this)">
+        <td style="padding:6px 8px;white-space:nowrap;">${time}</td>
+        <td style="padding:6px 8px;"><span style="color:${tc};font-size:10px;">${q.tool_name.replace("_"," ")}</span></td>
+        <td style="padding:6px 8px;color:var(--text);font-size:10px;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(preview)}</td>
+        <td style="padding:6px 8px;text-align:right;color:${durColor};font-variant-numeric:tabular-nums;">${dur.toLocaleString()}ms</td>
+        <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;">${q.row_count.toLocaleString()}</td>
+        <td style="padding:6px 8px;text-align:center;">${status}</td>
+      </tr>
+      <tr class="query-detail" id="qd-${q.id}" style="display:none;">
+        <td colspan="6" style="padding:0 8px 8px 8px;"></td>
+      </tr>`;
+    }).join("");
+    // Mobile cards
+    cards.innerHTML = d.queries.map(q => {
+      const time = new Date(q.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      const dur = q.duration_ms;
+      const durColor = dur < 500 ? "var(--green)" : dur < 2000 ? "var(--amber)" : "var(--red)";
+      const toolColors = { read_data: "var(--cyan)", list_table: "var(--amber)", describe_table: "var(--purple)" };
+      const tc = toolColors[q.tool_name] || "var(--muted)";
+      const preview = (q.query_text || "").substring(0, 60) + (q.query_text?.length > 60 ? "..." : "");
+      const dot = q.success ? '<span style="color:var(--green);">●</span>' : '<span style="color:var(--red);">●</span>';
+      return `<div class="query-card" onclick="toggleMobileDetail(${q.id},this)">
+        <div class="query-card-header">
+          <span style="color:${tc};font-size:10px;font-weight:600;">${q.tool_name.replace("_"," ")}</span>
+          <span style="font-size:10px;color:var(--muted);">${time}</span>
+        </div>
+        <div class="query-card-query">${escHtml(preview)}</div>
+        <div class="query-card-meta">
+          ${dot} <span style="color:${durColor}">${dur.toLocaleString()}ms</span>
+          <span>${q.row_count.toLocaleString()} rows</span>
+        </div>
+        <div class="query-card-detail" id="qcd-${q.id}" style="display:none;margin-top:8px;"></div>
+      </div>`;
+    }).join("");
+    const totalPages = Math.ceil(d.total / d.limit);
+    document.getElementById("query-log-pagination").innerHTML =
+      `<span>Page ${d.page} / ${totalPages} (${d.total})</span>
+       <div style="display:flex;gap:6px;">
+         <button onclick="fetchQueryLog(${d.page - 1})" ${d.page <= 1 ? "disabled" : ""} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;">Prev</button>
+         <button onclick="fetchQueryLog(${d.page + 1})" ${d.page >= totalPages ? "disabled" : ""} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;">Next</button>
+       </div>`;
+  } catch {}
+}
+
+function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+async function toggleQueryDetail(id, row) {
+  const detail = document.getElementById("qd-" + id);
+  if (!detail) return;
+  if (detail.style.display !== "none") { detail.style.display = "none"; return; }
+  detail.style.display = "";
+  const td = detail.querySelector("td");
+  td.innerHTML = '<div style="color:var(--muted);font-size:10px;">Loading...</div>';
+  try {
+    const r = await fetch("/api/query-log/" + id);
+    const q = await r.json();
+    td.innerHTML = queryDetailHtml(q);
+  } catch { td.innerHTML = '<div style="color:var(--red);">Failed to load</div>'; }
+}
+
+async function toggleMobileDetail(id, card) {
+  const detail = card.querySelector(".query-card-detail");
+  if (!detail) return;
+  if (detail.style.display !== "none") { detail.style.display = "none"; return; }
+  detail.style.display = "block";
+  detail.innerHTML = '<div style="color:var(--muted);font-size:10px;">Loading...</div>';
+  try {
+    const r = await fetch("/api/query-log/" + id);
+    const q = await r.json();
+    detail.innerHTML = queryDetailHtml(q);
+  } catch { detail.innerHTML = '<div style="color:var(--red);">Failed to load</div>'; }
+}
+
+function formatSql(sql) {
+  if (!sql) return "";
+  // Add newlines before major SQL keywords
+  const keywords = /\b(SELECT|FROM|WHERE|AND|OR|GROUP BY|ORDER BY|HAVING|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|LIMIT|OFFSET|UNION|INSERT|UPDATE|DELETE|INTO|VALUES|TOP|DISTINCT|AS|CASE|WHEN|THEN|ELSE|END|IN|NOT|BETWEEN|LIKE|IS|NULL|ASC|DESC|WITH|SET)\b/gi;
+  let formatted = sql
+    .replace(/\s+/g, " ") // normalize whitespace
+    .trim();
+  // Add newline before major clause keywords (not inline ones like AND in conditions)
+  const clauseKeywords = /\b(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|UNION|INSERT|UPDATE|DELETE|WITH)\b/gi;
+  formatted = formatted.replace(clauseKeywords, (match, keyword, offset) => {
+    return (offset > 0 ? "\n" : "") + match.toUpperCase();
+  });
+  // Indent non-first lines
+  const lines = formatted.split("\n");
+  return lines.map((line, i) => i === 0 ? line.trim() : "  " + line.trim()).join("\n");
+}
+
+function queryDetailHtml(q) {
+  const formatted = formatSql(q.query_text || "");
+  const raw = q.query_text || "";
+  return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;" data-raw-query="${escAttr(raw)}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
+      <span style="font-size:10px;color:var(--muted);">${q.tool_name} · ${q.duration_ms}ms · ${q.row_count} rows</span>
+      <button onclick="copyQuery(this)" style="background:var(--cyan);color:var(--bg);border:none;padding:4px 12px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600;">Copy</button>
+    </div>
+    <pre style="white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.5;margin:0;color:var(--text);max-height:200px;overflow-y:auto;">${escHtml(formatted)}</pre>
+    ${q.error_message ? '<div style="color:var(--red);font-size:10px;margin-top:6px;">Error: ' + escHtml(q.error_message) + '</div>' : ""}
+  </div>`;
+}
+
+function escAttr(s) { return s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+function copyQuery(btn) {
+  event.stopPropagation();
+  const container = btn.closest("[data-raw-query]");
+  const raw = container ? container.getAttribute("data-raw-query") : "";
+  const text = raw || btn.closest("div").parentElement.querySelector("pre")?.textContent || "";
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = "Copied!";
+    setTimeout(() => btn.textContent = "Copy", 1500);
+  }).catch(() => {
+    // Fallback for non-HTTPS
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    btn.textContent = "Copied!";
+    setTimeout(() => btn.textContent = "Copy", 1500);
+  });
+}
+
+// ── Ops (Approvals + Escalations) ──
+async function fetchOps() {
+  try {
+    const approvals = await (await fetch("/api/approvals")).json();
+    const el = document.getElementById("ops-approvals");
+    const statusFilter = document.getElementById("ops-status-filter")?.value || "all";
+    const dateFilter = document.getElementById("ops-date-filter")?.value || "all";
+    
+    // Apply date filter
+    const now = Date.now();
+    const dateFiltered = dateFilter === "all" ? approvals : approvals.filter(a => {
+      const created = new Date(a.createdAt).getTime();
+      if (dateFilter === "today") return created >= new Date(new Date().toDateString()).getTime();
+      if (dateFilter === "7d") return created >= now - 7 * 86400000;
+      if (dateFilter === "30d") return created >= now - 30 * 86400000;
+      return true;
+    });
+    
+    // Apply status filter
+    const statusFiltered = statusFilter === "all" ? dateFiltered : dateFiltered.filter(a => a.status === statusFilter);
+    
+    const pending = statusFiltered.filter(a => a.status === "pending");
+    const resolved = statusFiltered.filter(a => a.status !== "pending");
+    const sc = {pending:"var(--amber)",approved:"var(--green)",rejected:"var(--red)",acknowledged:"var(--cyan)"};
+
+    let html = '';
+
+    // Pending section
+    if (pending.length > 0) {
+      html += '<h4 style="font-size:11px;color:var(--amber);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Pending (' + pending.length + ')</h4>';
+      html += pending.map(a => renderApproval(a, sc, true)).join("");
+    } else {
+      html += '<div style="text-align:center;color:var(--muted);font-size:11px;padding:16px;">No pending approvals</div>';
+    }
+
+    // Resolved section — collapsed
+    if (resolved.length > 0) {
+      html += '<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;padding:4px 0;">History (' + resolved.length + ')</summary>';
+      html += '<div style="margin-top:8px;">' + resolved.map(a => renderApproval(a, sc, false)).join("") + '</div>';
+      html += '</details>';
+    }
+
+    el.innerHTML = html;
+  } catch {}
+
+  // Escalations
+  try {
+    const r = await (await fetch("/api/fleet-ops")).json();
+    const el = document.getElementById("ops-escalations");
+    const content = r.content || "";
+    if (content && !content.includes("No escalations.")) {
+      el.innerHTML = '<h4 style="font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Escalations</h4>'
+        + '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;line-height:1.6;white-space:pre-wrap;">'
+        + escHtml(content).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        + '</div>';
+    } else {
+      el.innerHTML = '';
+    }
+  } catch {}
+}
+
+function renderApproval(a, sc, showButtons) {
+  const borderColor = sc[a.status] || "var(--border)";
+  const statusBadge = '<span style="background:' + borderColor + ';color:var(--bg);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:bold;text-transform:uppercase;">' + a.status + '</span>';
+  const time = new Date(a.createdAt).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+  const resolvedInfo = a.resolvedAt ? '<div style="font-size:9px;color:var(--muted);margin-top:4px;">Resolved: ' + new Date(a.resolvedAt).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) + (a.executedBy ? ' by ' + a.executedBy : '') + (a.rejectReason ? ' — ' + escHtml(a.rejectReason) : '') + '</div>' : '';
+  const execResult = a.executionResult ? '<details style="margin:4px 0;"><summary style="cursor:pointer;font-size:10px;color:var(--green);">Execution Result</summary><pre style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:10px;margin-top:4px;white-space:pre-wrap;max-height:150px;overflow-y:auto;">' + escHtml(a.executionResult) + '</pre></details>' : '';
+
+  let discussionHtml = '';
+  if (a.discussion && a.discussion.length > 0) {
+    discussionHtml = '<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;">' +
+      '<div style="font-size:9px;color:var(--cyan);text-transform:uppercase;margin-bottom:3px;">Discussion (' + a.discussion.length + ')</div>' +
+      a.discussion.map(function(d) {
+        var dTime = new Date(d.timestamp).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+        var fromColor = d.isAgent ? "var(--cyan)" : "var(--amber)";
+        return '<div style="margin:2px 0;padding:3px 6px;background:var(--bg);border-radius:3px;font-size:10px;border-left:2px solid ' + fromColor + ';">' +
+          '<span style="color:' + fromColor + ';font-weight:bold;">' + d.from + '</span> <span style="color:var(--muted);font-size:9px;">' + dTime + '</span><br>' +
+          escHtml(d.message).substring(0, 500) + '</div>';
+      }).join("") + '</div>';
+  }
+
+  let buttons = '';
+  if (showButtons && a.status === "pending") {
+    buttons = '<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">' +
+      '<button onclick="approveItem(\'' + a.id + '\')" style="background:var(--green);color:var(--bg);border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;">Approve</button>' +
+      '<button onclick="rejectItem(\'' + a.id + '\')" style="background:var(--red);color:var(--bg);border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;">Reject</button>' +
+      '<button onclick="editApproval(\'' + a.id + '\')" style="background:none;color:var(--fg);border:1px solid var(--border);padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;">Edit</button>' +
+      '<button onclick="addComment(\'' + a.id + '\')" style="background:none;color:var(--cyan);border:1px solid var(--cyan);padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;">Comment</button>' +
+      '<button onclick="askAgent(\'' + a.id + '\')" style="background:none;color:var(--amber);border:1px solid var(--amber);padding:4px 10px;border-radius:3px;cursor:pointer;font-size:10px;">Ask Agent</button>' +
+      '</div>';
+  }
+
+  return '<div style="background:var(--surface);border:1px solid ' + borderColor + ';border-radius:6px;padding:10px;margin-bottom:8px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+    '<span style="color:var(--muted);font-size:10px;">' + a.agent + ' · ' + (a.type || "general") + ' · ' + time + '</span>' + statusBadge + '</div>' +
+    '<div style="font-size:11px;margin-bottom:4px;font-weight:500;">' + escHtml(a.target || a.description).substring(0, 120) + '</div>' +
+    (a.target && a.description !== a.target ? '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;">' + escHtml(a.description).substring(0, 200) + '</div>' : '') +
+    (a.proposedAction ? '<div style="font-size:10px;color:var(--fg);margin:4px 0;padding:4px 6px;background:var(--bg);border-radius:3px;border-left:2px solid var(--cyan);max-height:60px;overflow:hidden;"><strong>Proposed:</strong> ' + escHtml(a.proposedAction).substring(0, 200) + '</div>' : '') +
+    resolvedInfo + 
+    (a.workaround ? '<div style="font-size:10px;margin:4px 0;padding:4px 6px;background:var(--bg);border-radius:3px;border-left:2px solid var(--cyan);"><strong>Workaround:</strong> ' + escHtml(a.workaround).substring(0, 200) + '</div>' : '') +
+    (a.rootFixNeeded ? '<div style="font-size:10px;margin:4px 0;padding:4px 6px;background:var(--bg);border-radius:3px;border-left:2px solid var(--amber);"><strong>Root fix needed:</strong> ' + escHtml(a.rootFixNeeded).substring(0, 200) + '</div>' : '') +
+    execResult + discussionHtml + buttons + '</div>';
+}
+
+async function approveItem(id) {
+  const agents = ["agent-orchestrator", "agent-data", "agent-monitor"];
+  const agent = prompt("Which agent should execute the fix? (agent-orchestrator, agent-data, agent-monitor)\nLeave blank for the original submitter:");
+  const body = agent && agents.includes(agent) ? { executeAs: agent } : {};
+  await fetch("/api/approvals/"+id+"/approve", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
+  fetchOps();
+}
+
+async function rejectItem(id) {
+  const reason = prompt("Rejection reason (optional):");
+  await fetch("/api/approvals/"+id+"/reject", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({reason: reason || ""}) });
+  fetchOps();
+}
+
+async function discussItem(approvalId, agent) {
+  // Create a conversation task to discuss this approval with the agent
+  const desc = `@${agent} I want to discuss approval ${approvalId} before deciding. What exactly will this change and what are the risks?`;
+  await fetch("/api/tasks", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ agent, description: desc, mode: "conversation", agents: [agent], outputFormat: "text", timeline: "immediate" })
+  });
+  switchTab("tasks");
+}
+
+// ── Weekly Summary ──
+async function fetchWeeklySummary() {
+  try {
+    const r = await (await fetch("/api/weekly-summary")).json();
+    const el = document.getElementById("weekly-summary-content");
+    const content = r.content || "No summary yet.";
+    el.innerHTML = escHtml(content)
+      .replace(/^(#+\s*.+)$/gm, '<div style="color:var(--cyan);font-weight:700;margin-top:12px;margin-bottom:4px;">$1</div>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
+      .replace(/^(TASKS:|KEY FINDINGS:|DATA ANOMALIES:|COST:|REPORTS|EMAILS|NO OPEN)/gm, '<div style="color:var(--amber);font-weight:600;margin-top:8px;">$&</div>')
+      .replace(/•/g, '<span style="color:var(--cyan);">•</span>');
+  } catch {}
+}
+
+
+async function fetchFleetDocs() {
+  try {
+    const r = await (await fetch("/api/fleet-docs")).json();
+    const content = r.content || "No docs found.";
+    const verMatch = content.match(/\*\*Version:\*\*\s*(.+)/);
+    const ver = document.getElementById("docs-version");
+    if (verMatch && ver) ver.textContent = verMatch[1].trim();
+    const {tocHtml, bodyHtml} = buildDocsAccordion(content);
+    document.getElementById("docs-toc").innerHTML = tocHtml;
+    document.getElementById("fleet-docs-content").innerHTML = bodyHtml;
+  } catch(e) { document.getElementById("fleet-docs-content").textContent = "Error loading docs: "+e.message; }
+}
+
+function buildDocsAccordion(raw) {
+  const lines = raw.split("\n");
+  let tocHtml = "";
+  let bodyHtml = "";
+  let sectionId = 0;
+  let inSection = false;
+  let inSub = false;
+  let inCodeBlock = false;
+  let sectionBuffer = [];
+  let currentH2 = null;
+  let currentH3 = null;
+  let skipToc = false;
+
+  function flushSub() {
+    if (inSub && currentH3) {
+      bodyHtml += '<details class="docs-sub"><summary class="docs-sub-sum">' + escHtml(currentH3) + '</summary><div class="docs-sub-body">' + renderDocBlock(sectionBuffer.join("\n")) + '</div></details>';
+      sectionBuffer = [];
+      inSub = false;
+      currentH3 = null;
+    } else if (sectionBuffer.length > 0) {
+      bodyHtml += renderDocBlock(sectionBuffer.join("\n"));
+      sectionBuffer = [];
+    }
+  }
+
+  function flushSection() {
+    flushSub();
+    if (inSection && currentH2) {
+      bodyHtml += '</div></details>';
+      inSection = false;
+      currentH2 = null;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; sectionBuffer.push(line); continue; }
+    if (inCodeBlock) { sectionBuffer.push(line); continue; }
+
+    const h1 = line.match(/^# (.+)/);
+    const h2 = line.match(/^## (.+)/);
+    const h3 = line.match(/^### (.+)/);
+
+    if (h1) {
+      flushSection();
+      bodyHtml += '<div class="docs-h1">' + escHtml(h1[1]) + '</div>';
+      continue;
+    }
+
+    if (h2) {
+      flushSection();
+      sectionId++;
+      const title = h2[1];
+      const sid = "docs-s" + sectionId;
+      skipToc = title === "Table of Contents";
+      if (skipToc) {
+        // Skip the whole TOC section — consume lines until next heading
+        i++;
+        while (i < lines.length) {
+          if (!lines[i].startsWith('```') && lines[i].match(/^#{1,3} /)) { i--; break; }
+          i++;
+        }
+        continue;
+      }
+      tocHtml += '<div class="docs-toc-item" onclick="docsJump(\''+sid+'\')"><span class="docs-toc-num">' + (title.match(/^(\d+)\./) ? title.match(/^(\d+)\./)[1] : '') + '</span>' + escHtml(title.replace(/^\d+\.\s*/, '')) + '</div>';
+      currentH2 = title;
+      inSection = true;
+      bodyHtml += '<details class="docs-section" id="'+sid+'"><summary class="docs-section-sum">' + escHtml(title) + '</summary><div class="docs-section-body">';
+      continue;
+    }
+
+    if (h3) {
+      flushSub();
+      sectionId++;
+      const title = h3[1];
+      const sid = "docs-s" + sectionId;
+      if (!skipToc) {
+        tocHtml += '<div class="docs-toc-sub" onclick="docsJump(\''+sid+'\')"><span class="docs-toc-dot">›</span>' + escHtml(title.replace(/^[\d.]+\s*/, '')) + '</div>';
+      }
+      currentH3 = title;
+      inSub = true;
+      sectionBuffer = [];
+      // We need to attach the id to the sub-details
+      // Temporarily store the sid, we'll use it when flushing
+      currentH3 = title;
+      // Override flushSub for this one to include the id
+      bodyHtml += ''; // placeholder
+      // Actually let's just build it inline
+      inSub = false; // we'll handle it directly
+      // Find all lines until next heading
+      let subLines = [];
+      i++;
+      while (i < lines.length) {
+        const nextLine = lines[i];
+        if (!inCodeBlock && (nextLine.match(/^#{1,3} /) || false)) { i--; break; }
+        if (nextLine.startsWith('```')) inCodeBlock = !inCodeBlock;
+        subLines.push(nextLine);
+        i++;
+      }
+      bodyHtml += '<details class="docs-sub" id="'+sid+'"><summary class="docs-sub-sum">' + escHtml(title) + '</summary><div class="docs-sub-body">' + renderDocBlock(subLines.join("\n")) + '</div></details>';
+      continue;
+    }
+
+    sectionBuffer.push(line);
+  }
+
+  flushSection();
+  return {tocHtml, bodyHtml};
+}
+
+function renderDocBlock(text) {
+  let h = escHtml(text);
+  // Code blocks first (before other transforms)
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="docs-code">$2</pre>');
+  // Tables
+  h = h.replace(/\|(.+)\|/g, (line) => {
+    const cells = line.split("|").filter(c => c.trim());
+    if (cells.every(c => /^[\s-:]+$/.test(c))) return "";
+    return "<tr>" + cells.map(c => '<td class="docs-td">'+c.trim()+"</td>").join("") + "</tr>";
+  });
+  h = h.replace(/((<tr>.*<\/tr>\n?)+)/g, '<table class="docs-table">$1</table>');
+  // Inline code
+  h = h.replace(/`([^`]+)`/g, '<code class="docs-inline-code">$1</code>');
+  // Bold
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>');
+  // Links — strip markdown link syntax, keep text
+  h = h.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  // Numbered list items
+  h = h.replace(/^(\d+)\. (.+)$/gm, '<div class="docs-bullet"><span class="docs-bullet-dot" style="color:var(--amber);">$1.</span><span>$2</span></div>');
+  // Indented sub-items (- 2.1 ...)
+  h = h.replace(/^   - (.+)$/gm, '<div class="docs-bullet" style="padding-left:18px;"><span class="docs-bullet-dot">›</span><span>$1</span></div>');
+  // Bullets
+  h = h.replace(/^- (.+)$/gm, '<div class="docs-bullet"><span class="docs-bullet-dot">\u2022</span><span>$1</span></div>');
+  // Blockquotes
+  h = h.replace(/^&gt; (.+)$/gm, '<div class="docs-quote">$1</div>');
+  // Horizontal rules
+  h = h.replace(/^---$/gm, '<hr class="docs-hr">');
+  // Paragraphs (double newline)
+  h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
+  return h;
+}
+
+function docsJump(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Open parent details if collapsed
+  let parent = el.closest("details.docs-section");
+  if (parent && !parent.open) parent.open = true;
+  if (el.tagName === "DETAILS" && !el.open) el.open = true;
+  el.scrollIntoView({behavior:"smooth", block:"start"});
+  el.classList.add("docs-flash");
+  setTimeout(() => el.classList.remove("docs-flash"), 1200);
+}
+
+function docsExpandAll() {
+  document.querySelectorAll("#fleet-docs-content details").forEach(d => d.open = true);
+}
+
+function docsCollapseAll() {
+  document.querySelectorAll("#fleet-docs-content details").forEach(d => d.open = false);
+}
+
+async function generateWeeklySummary() {
+  const btn = event.target;
+  btn.textContent = "Generating...";
+  btn.disabled = true;
+  await fetch("/api/weekly-summary/generate", { method: "POST" });
+  // Poll for completion
+  const poll = setInterval(async () => {
+    const r = await (await fetch("/api/weekly-summary")).json();
+    if (r.content && !r.content.includes("No weekly summary yet")) {
+      clearInterval(poll);
+      fetchWeeklySummary();
+      btn.textContent = "Generate Now";
+      btn.disabled = false;
+    }
+  }, 5000);
+  // Timeout after 5 min
+  setTimeout(() => { clearInterval(poll); btn.textContent = "Generate Now"; btn.disabled = false; }, 300000);
+}
+
+// ── Synapse Tasks, Crons, Fleet Ops ──
+
+async function fetchSynapseTasks() {
+  try {
+    const r = await fetch("/api/synapse-tasks");
+    const d = await r.json();
+    const el = document.getElementById("synapse-task-list");
+    if (!d.tasks?.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;">No tasks in synapse queue</div>'; return; }
+    const sc = {pending:"var(--amber)",scheduled:"var(--purple)",in_progress:"var(--blue)",completed:"var(--green)",failed:"var(--red)"};
+    el.innerHTML = d.tasks.slice(0, 20).map((t, i) => {
+      const c = sc[t.status] || "var(--muted)";
+      const time = t.created ? new Date(t.created).toLocaleTimeString("en-US", {timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}) : "";
+      const cost = t.cost ? ` · $${t.cost.toFixed(4)}` : "";
+      const retryBtn = t.status === "failed" ? `<button onclick="event.stopPropagation();retrySynapseTask('${t.id}')" style="background:var(--amber);color:var(--bg);border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;margin-left:4px;">Retry</button>` : "";
+      const rowId = "st-detail-" + i;
+      const promptText = escHtml((t.prompt || "").substring(0, 100));
+      const fullResult = t.result ? escHtml(t.result) : "";
+      const fullError = t.error ? escHtml(t.error) : "";
+      const fullPrompt = escHtml(t.prompt || "");
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;">
+        <div style="padding:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="var el=document.getElementById('${rowId}');el.style.display=el.style.display==='none'?'block':'none'">
+          <div style="min-width:0;flex:1;">
+            <span style="color:${c};font-size:10px;font-weight:600;">${t.status}</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:4px;">${t.agent} · ${time}${cost}</span>
+            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">${promptText}</div>
+            ${t.result ? '<div style="font-size:10px;color:var(--green);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escHtml(t.result.substring(0,80))+'</div>' : ""}
+            ${t.error ? '<div style="font-size:10px;color:var(--red);margin-top:2px;">Error: '+escHtml(t.error.substring(0,80))+'</div>' : ""}
+          </div>
+          <div style="flex-shrink:0;">${retryBtn}</div>
+        </div>
+        <div id="${rowId}" style="display:none;padding:8px;border-top:1px solid var(--border);background:var(--bg);cursor:text;user-select:text;">
+          <div style="font-size:9px;color:var(--cyan);text-transform:uppercase;margin-bottom:4px;">Prompt <button class="copy-btn-discreet" onclick="event.stopPropagation();copyElText(this)">Copy</button></div>
+          <div style="font-size:10px;font-family:monospace;white-space:pre-wrap;word-break:break-all;margin-bottom:8px;max-height:100px;overflow-y:auto;">${fullPrompt}</div>
+          ${fullResult ? '<div style="font-size:9px;color:var(--green);text-transform:uppercase;margin-bottom:4px;">Result <button class="copy-btn-discreet" onclick="event.stopPropagation();copyElText(this)">Copy</button></div><div style="font-size:10px;font-family:monospace;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;">' + fullResult + '</div>' : ""}
+          ${fullError ? '<div style="font-size:9px;color:var(--red);text-transform:uppercase;margin-bottom:4px;">Error</div><div style="font-size:10px;font-family:monospace;white-space:pre-wrap;word-break:break-all;">' + fullError + '</div>' : ""}
+        </div>
+      </div>`;
+    }).join("")
+  } catch {}
+}
+
+async function retrySynapseTask(id) {
+  try {
+    await fetch("/api/synapse-tasks/"+id+"/retry", {method:"POST"});
+    fetchSynapseTasks();
+  } catch {}
+}
+
+async function fetchCrons() {
+  try {
+    const crons = await (await fetch("/api/crons")).json();
+    const el = document.getElementById("cron-list");
+    if (!crons.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;">No crons found</div>'; return; }
+    const ac = {agent-orchestrator, agent-data, agent-monitor:"var(--green)",system:"var(--muted)"};
+    el.innerHTML = crons.map(c => {
+      const color = ac[c.agent] || "var(--muted)";
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:6px 8px;margin-bottom:3px;display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+        <div style="min-width:0;flex:1;">
+          <span style="color:${color};font-weight:600;font-size:10px;">${c.agent}</span>
+          <span style="margin-left:6px;">${escHtml(c.name)}</span>
+        </div>
+        <span style="color:var(--muted);font-size:10px;flex-shrink:0;margin-left:8px;font-family:monospace;">${c.schedule}</span>
+      </div>`;
+    }).join("");
+  } catch {}
+}
+
+// fetchFleetOps removed — merged into fetchOps()
+
+// ── Init + polling ──
+
+// __ Usage tracking __
+async function fetchUsage() {
+  try {
+    // Get summary from synapse
+    const resp = await fetch("/api/usage/summary");
+    const s = await resp.json();
+
+    // Today
+    document.getElementById("usage-today-cost").textContent = "$" + (s.today.cost || 0).toFixed(2);
+    document.getElementById("usage-today-calls").textContent = (s.today.calls || 0) + " calls";
+
+    // Week
+    document.getElementById("usage-week-cost").textContent = "$" + (s.week.cost || 0).toFixed(2);
+    document.getElementById("usage-week-calls").textContent = (s.week.calls || 0) + " calls";
+
+    // Month
+    document.getElementById("usage-month-cost").textContent = "$" + (s.month.cost || 0).toFixed(2);
+    document.getElementById("usage-month-calls").textContent = (s.month.calls || 0) + " calls";
+
+    // Agent breakdown - today
+    const todayAgents = s.today.byAgent || {};
+    const agentColors = { agent-orchestrator, agent-data, agent-monitor: "var(--green)" };
+    document.getElementById("usage-today-agents").innerHTML = Object.entries(todayAgents).map(([a, d]) =>
+      '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:' + (agentColors[a]||"var(--text)") + '">' + a + '</span><span>$' + d.cost.toFixed(3) + ' (' + d.calls + ')</span></div>'
+    ).join("") || '<div style="color:var(--muted)">No calls yet</div>';
+
+    // Agent breakdown - month
+    const monthAgents = s.month.byAgent || {};
+    document.getElementById("usage-month-agents").innerHTML = Object.entries(monthAgents).map(([a, d]) =>
+      '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:' + (agentColors[a]||"var(--text)") + '">' + a + '</span><span>$' + d.cost.toFixed(2) + ' (' + d.calls + ')</span></div>'
+    ).join("") || '<div style="color:var(--muted)">No calls yet</div>';
+
+    // Hourly chart
+    const byHour = s.today.byHour || {};
+    const hourData = [];
+    for (let h = 0; h < 24; h++) {
+      const hStr = h.toString().padStart(2, "0");
+      hourData.push(byHour[hStr]?.cost || 0);
+    }
+    drawBarChart("chart-hourly-cost", hourData, Math.max(...hourData, 0.01), "rgb(78,205,196)");
+
+    // Recent calls
+    document.getElementById("usage-recent").innerHTML = (s.recent || []).map(e =>
+      '<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--border);">' +
+      '<span style="color:' + (agentColors[e.agent]||"var(--text)") + '">' + e.agent + '</span>' +
+      '<span style="color:var(--muted);font-size:10px;">' + e.model.split("[")[0] + '</span>' +
+      '<span>$' + e.cost.toFixed(4) + '</span>' +
+      '<span style="color:var(--muted);font-size:10px;">' + new Date(e.ts).toLocaleTimeString() + '</span></div>'
+    ).join("") || '<div style="color:var(--muted)">No calls yet</div>';
+
+  } catch(e) { console.error("Usage fetch:", e); }
+
+  // Daily chart from full usage data
+  try {
+    const resp = await fetch("/api/usage/full");
+    const data = await resp.json();
+    const dailyKeys = Object.keys(data.daily || {}).sort().slice(-30);
+    const dailyCosts = dailyKeys.map(k => data.daily[k].cost);
+    drawBarChart("chart-daily-cost", dailyCosts, Math.max(...dailyCosts, 0.01), "rgb(232,168,56)");
+  } catch {}
+}
+
+function drawBarChart(canvasId, data, max, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !data.length) return;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(0, h*i/4); ctx.lineTo(w, h*i/4); ctx.stroke(); }
+
+  const barW = Math.max(2, (w / data.length) - 2);
+  const gap = 2;
+  data.forEach((v, i) => {
+    const x = i * (barW + gap);
+    const barH = max > 0 ? (v / max) * (h - 4) : 0;
+    ctx.fillStyle = v > 0 ? color : "rgba(255,255,255,0.02)";
+    ctx.fillRect(x, h - barH, barW, barH);
+  });
+}
+
+
+// __ Models __
+let cachedModels = [];
+async function fetchModels() {
+  try {
+    const resp = await fetch("/api/models");
+    cachedModels = await resp.json();
+    populateModelSelects();
+  } catch(e) { console.error("Models:", e); }
+}
+
+function populateModelSelects() {
+  const selects = document.querySelectorAll("#task-model, .model-select");
+  selects.forEach(sel => {
+    const current = sel.value;
+    const isReply = sel.classList.contains("model-select");
+    sel.innerHTML = '<option value="">' + (isReply ? "Same model" : "Default [Sonnet]") + '</option>';
+    // Add aliases first
+    ["sonnet", "opus", "haiku"].forEach(alias => {
+      const opt = document.createElement("option");
+      opt.value = alias;
+      opt.textContent = alias.charAt(0).toUpperCase() + alias.slice(1);
+      sel.appendChild(opt);
+    });
+    // Add separator
+    const sep = document.createElement("option");
+    sep.disabled = true;
+    sep.textContent = "---";
+    sel.appendChild(sep);
+    // Add full model IDs
+    cachedModels.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+  });
+}
+
+// Re-populate model selects after tasks render (for reply selects)
+const origFetchTasks = fetchTasks;
+fetchTasks = async function() {
+  await origFetchTasks();
+  populateModelSelects();
+};
+
+// Global agent config — populated from server
+var AGENTS_CONFIG = [
+  { id: "agent-orchestrator", name: "Agent-Orchestrator", color: "#4ecdc4", initials: "LD" },
+  { id: "agent-data", name: "Agent-Data", color: "#60a5fa", initials: "BY" },
+  { id: "agent-monitor", name: "Agent-Monitor", color: "#e8a838", initials: "DW" },
+];
+var AGENT_COLORS = {};
+var AGENT_NAMES = {};
+function updateAgentMaps() {
+  AGENT_COLORS = Object.fromEntries(AGENTS_CONFIG.map(a => [a.id, a.color]));
+  AGENT_NAMES = Object.fromEntries(AGENTS_CONFIG.map(a => [a.id, a.name]));
+}
+updateAgentMaps();
+
+async function loadConfig() {
+  try {
+    const r = await fetch("/api/config");
+    const cfg = await r.json();
+    if (cfg.agents && cfg.agents.length) {
+      AGENTS_CONFIG = cfg.agents;
+      updateAgentMaps();
+      // Update dropdowns
+      const agentSelects = ["task-agent", "task-search-agent", "spawn-agent"];
+      for (const selId of agentSelects) {
+        const sel = document.getElementById(selId);
+        if (!sel) continue;
+        const current = sel.value;
+        const isFilter = selId === "task-search-agent";
+        sel.innerHTML = (isFilter ? '<option value="all">Agent</option>' : '')
+          + AGENTS_CONFIG.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+        if (current) sel.value = current;
+      }
+      // Update conv checkboxes
+      const convDiv = document.getElementById("conv-agents");
+      if (convDiv) {
+        convDiv.querySelector("div").innerHTML = AGENTS_CONFIG.map(a =>
+          `<label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--text);cursor:pointer;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;">
+            <input type="checkbox" value="${a.id}" class="conv-agent-cb" checked style="accent-color:var(--cyan);"> ${a.name}
+          </label>`
+        ).join("") + `<label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--muted);white-space:nowrap;" title="Discussion rounds">
+          Rds:<select id="task-rounds" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:1px 3px;border-radius:3px;font-family:inherit;font-size:10px;margin-left:2px;">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+        </label>`;
+      }
+    }
+  } catch (e) { console.error("loadConfig:", e); }
+}
+
+loadConfig();
+fetchModels();
+fetchTasks(); fetchLogs(); fetchMetrics(); fetchServices(); fetchUploads(); fetchUsage();
+fetchSynapseTasks(); fetchCrons(); fetchOps();
+// Sidebar task summary
+async function updateSidebarSummary() {
+  try {
+    const r = await fetch("/api/synapse-tasks");
+    const d = await r.json();
+    const s = {};
+    (d.tasks||[]).forEach(t => s[t.status] = (s[t.status]||0) + 1);
+    const el = document.getElementById("sidebar-task-summary");
+    const parts = [];
+    if (s.pending) parts.push(`<span style="color:var(--amber)">${s.pending} pending</span>`);
+    if (s.in_progress) parts.push(`<span style="color:var(--blue)">${s.in_progress} running</span>`);
+    if (s.scheduled) parts.push(`<span style="color:var(--purple)">${s.scheduled} scheduled</span>`);
+    if (s.failed) parts.push(`<span style="color:var(--red)">${s.failed} failed</span>`);
+    if (s.completed) parts.push(`<span style="color:var(--green)">${s.completed} done</span>`);
+    el.innerHTML = parts.join(" · ") || "No tasks";
+  } catch {}
+}
+updateSidebarSummary(); setInterval(updateSidebarSummary, 60000);
+
+// Tab-aware auto-refresh — only refreshes the ACTIVE tab, and skips if user is interacting
+let lastInteraction = 0;
+document.addEventListener("scroll", () => { lastInteraction = Date.now(); }, true);
+document.addEventListener("click", () => { lastInteraction = Date.now(); }, true);
+
+function safeRefresh(tabName, fn, intervalMs) {
+  setInterval(() => {
+    // Skip if user interacted in the last 10 seconds
+    if (Date.now() - lastInteraction < 10000) return;
+    // Skip if this tab isn't active
+    if (currentTab !== tabName) return;
+    // Skip if any detail row is expanded
+    const expanded = document.querySelector("[id^='st-detail-']:not([style*='display:none']), [id^='bq-detail-']:not([style*='display:none']), details[open]");
+    if (expanded) return;
+    fn();
+  }, intervalMs);
+}
+
+safeRefresh("logs", fetchLogs, 30000);
+safeRefresh("metrics", fetchMetrics, 60000);
+safeRefresh("usage", fetchUsage, 60000);
+safeRefresh("tasks", () => { fetchServices(); fetchSynapseTasks(); }, 30000);
+safeRefresh("ops", fetchOps, 60000);
+
+// ── Test Plan ──────────────────────────────────────────────────────────────
+const TEST_FEATURES = [
+  { id: "single-task", title: "Single Agent Task", status: "stable",
+    desc: "Create a task for one agent. Select agent, type prompt, hit Create Task.",
+    example: "Select Agent-Data → 'How many active sites do we have?' → Create Task",
+    tips: "Expand the task card to see the full response. Use the reply bar to follow up." },
+  { id: "task-reply", title: "Task Reply / Follow-up", status: "stable",
+    desc: "After a task completes, use the reply bar at the bottom to ask follow-ups. Same agent keeps context.",
+    example: "After Agent-Data answers → reply: 'Now break that down by district'",
+    tips: "You can change agent (handoff), model, or output format on the reply." },
+  { id: "task-handoff", title: "Agent Handoff", status: "stable",
+    desc: "Hand a completed task to a different agent. The new agent sees the full conversation.",
+    example: "Agent-Data answers a data question → hand to Agent-Monitor → 'Set this up as a scheduled email'",
+    tips: "Use the agent dropdown on the reply bar to switch agents." },
+  { id: "conv-create", title: "Multi-Agent Conversation", status: "new",
+    desc: "Check 'Multi-Agent', select agents, type your prompt with @mentions. Creates a threaded conversation.",
+    example: "Check Multi-Agent + Agent-Orchestrator + Agent-Data → '@agent-data how many sites have stale data? @agent-orchestrator summarize'",
+    tips: "The first @mention routes to that agent first. Each subsequent agent sees prior responses." },
+  { id: "conv-pipeline", title: "Pipeline (@mention chaining)", status: "new",
+    desc: "Use multiple @mentions in one message. Agents respond sequentially, each seeing prior answers.",
+    example: "'@agent-monitor check the 8am and 10am scripts. @agent-data can we rebuild those with our views? @agent-orchestrator create an action plan'",
+    tips: "Order matters — agents respond in the order mentioned. Last agent is the synthesizer." },
+  { id: "conv-format", title: "Per-Agent Output Format", status: "new",
+    desc: "Add [format] after an @mention to request a specific output type from that agent.",
+    example: "'@agent-monitor check the scripts. @agent-data [xlsx] export the matching view data. @agent-orchestrator [md] write the summary'",
+    tips: "Formats: text, xlsx, csv, pdf, md, json, py, html, png, pptx, docx" },
+  { id: "conv-rounds", title: "Discussion Rounds", status: "new",
+    desc: "Set rounds > 1 for autonomous multi-round discussion. Each round, every agent responds seeing all prior rounds.",
+    example: "'@agent-monitor @agent-data what are your biggest pipeline issues? @agent-orchestrator prioritize' with rounds=3",
+    tips: "Rounds selector is next to Send button. $3 cost cap. Agents auto-skip if they say 'agreed'. Max 5 rounds." },
+  { id: "conv-addagent", title: "Add Agent Mid-Thread", status: "new",
+    desc: "Mention a new @agent in a conversation message to add them to the thread automatically.",
+    example: "Started with @agent-monitor @agent-data → later add '@agent-orchestrator can you review what they found?'",
+    tips: "The new agent sees the full conversation history." },
+  { id: "interactions", title: "Interaction History Tab", status: "new",
+    desc: "History tab shows all agent interactions as expandable JSONL entries. Filter by agent, browse by date.",
+    example: "Click History tab → expand an entry to see full prompt and response",
+    tips: "Every agent call is logged with tokens, cost, duration. Data persists in daily JSONL files." },
+  { id: "ops", title: "Ops Tab (Escalations + Approvals)", status: "new",
+    desc: "Merged view of agent escalations and approval requests. Approve/reject, or tap Discuss to open a conversation about it.",
+    example: "Click Ops tab → see pending approvals with Approve/Reject/Discuss buttons, plus fleet escalations",
+    tips: "Discuss creates a conversation task with the agent so you can ask questions before approving." },
+  { id: "queries", title: "Database Queries Tab", status: "stable",
+    desc: "View Agent-Data's database query log — tables queried, durations, row counts, charts.",
+    example: "Click Queries tab → see today's queries with timing",
+    tips: "Charts show queries/hour and queries/day trends." },
+  { id: "usage", title: "Usage & Cost Tracking", status: "stable",
+    desc: "Track API costs by agent, by day, by hour. See model breakdown.",
+    example: "Click Usage tab → view daily spend",
+    tips: "Data comes from synapse's usage.json." },
+];
+
+var feedbackCache = {};
+
+async function loadFeedback() {
+  try { feedbackCache = await (await fetch("/api/feedback")).json(); } catch { feedbackCache = {}; }
+}
+
+async function saveFeedbackStore() {
+  try { await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(feedbackCache) }); } catch {}
+}
+
+async function submitFeedback(featureId) {
+  const el = document.getElementById("fb-" + featureId);
+  const text = el?.value?.trim();
+  if (!text) return;
+  if (!feedbackCache[featureId]) feedbackCache[featureId] = { entries: [] };
+  if (!feedbackCache[featureId].entries) feedbackCache[featureId].entries = [];
+  feedbackCache[featureId].entries.push({ text, ts: new Date().toISOString(), id: Date.now() });
+  el.value = "";
+  await saveFeedbackStore();
+  renderFeedbackLog(featureId);
+}
+
+async function deleteFeedback(featureId, entryId) {
+  if (!feedbackCache[featureId]?.entries) return;
+  feedbackCache[featureId].entries = feedbackCache[featureId].entries.filter(e => e.id !== entryId);
+  await saveFeedbackStore();
+  renderFeedbackLog(featureId);
+}
+
+async function editFeedback(featureId, entryId) {
+  const entry = feedbackCache[featureId]?.entries?.find(e => e.id === entryId);
+  if (!entry) return;
+  const el = document.getElementById("fb-" + featureId);
+  if (el) el.value = entry.text;
+  // Remove old entry, user will re-submit
+  feedbackCache[featureId].entries = feedbackCache[featureId].entries.filter(e => e.id !== entryId);
+  await saveFeedbackStore();
+  renderFeedbackLog(featureId);
+  el?.focus();
+}
+
+function renderFeedbackLog(featureId) {
+  const logEl = document.getElementById("fblog-" + featureId);
+  if (!logEl) return;
+  const entries = feedbackCache[featureId]?.entries || [];
+  if (!entries.length) { logEl.innerHTML = ""; return; }
+  logEl.innerHTML = entries.slice().reverse().map(e => {
+    const time = new Date(e.ts).toLocaleString([], { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
+    return `<div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border);">
+      <div style="flex:1;font-size:11px;color:var(--text);white-space:pre-wrap;">${escHtml(e.text)}</div>
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+        <span style="font-size:9px;color:var(--muted);white-space:nowrap;">${time}</span>
+        <button onclick="editFeedback('${featureId}',${e.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:10px;padding:0 2px;" title="Edit">\u270e</button>
+        <button onclick="deleteFeedback('${featureId}',${e.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:10px;padding:0 2px;" title="Delete">\u00d7</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function renderTestPlan() {
+  await loadFeedback();
+  const el = document.getElementById("testplan-features");
+  const statusColors = { stable: "var(--green)", new: "var(--cyan)", experimental: "var(--amber)" };
+  el.innerHTML = TEST_FEATURES.map(f => {
+    const entryCount = feedbackCache[f.id]?.entries?.length || 0;
+    const countBadge = entryCount > 0 ? `<span style="font-size:9px;color:var(--amber);margin-left:6px;">${entryCount} note${entryCount>1?"s":""}</span>` : "";
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div>
+          <strong style="font-size:12px;color:var(--text);">${f.title}</strong>
+          <span style="font-size:9px;padding:1px 6px;border-radius:3px;background:${statusColors[f.status]||"var(--muted)"};color:var(--bg);font-weight:600;margin-left:6px;">${f.status}</span>
+          ${countBadge}
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text);margin-bottom:6px;">${f.desc}</div>
+      <div style="font-size:10px;color:var(--cyan);margin-bottom:4px;"><strong>Try:</strong> ${f.example}</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px;"><strong>Tips:</strong> ${f.tips}</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input id="fb-${f.id}" placeholder="Leave feedback..." onkeydown="if(event.key==='Enter')submitFeedback('${f.id}')"
+          style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:4px;font-family:inherit;font-size:11px;">
+        <button onclick="submitFeedback('${f.id}')" style="background:var(--cyan);color:var(--bg);border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;">Add</button>
+      </div>
+      <div id="fblog-${f.id}" style="margin-top:6px;"></div>
+    </div>`;
+  }).join("");
+  // Render existing logs
+  for (const f of TEST_FEATURES) renderFeedbackLog(f.id);
+}
+
+  // ── Baseline Tab ──
+  async function loadBaseline() {
+    const res = await fetch("/api/baseline");
+    const data = await res.json();
+    const sel = document.getElementById("baseline-date");
+    sel.innerHTML = data.dates.map(d => '<option value="' + d + '">' + d + '</option>').join("");
+
+    // Trend table (compact)
+    const tbody = document.getElementById("baseline-trend-body");
+    tbody.innerHTML = data.history.map(h => {
+      const scoreColor = h.v2Pct >= 80 ? 'var(--green)' : h.v2Pct >= 50 ? 'var(--yellow)' : 'var(--red)';
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:3px 4px;">' + h.date.substring(5) + '</td>' +
+        '<td style="text-align:right;padding:3px 4px;">' + h.total + '</td>' +
+        '<td style="text-align:right;padding:3px 4px;color:' + scoreColor + ';">' + h.v2Pct + '%</td>' +
+        '<td style="text-align:right;padding:3px 4px;color:' + (h.failures > 0 ? 'var(--red)':'var(--green)') + ';">' + h.failures + '</td>' +
+        '<td style="text-align:right;padding:3px 4px;">' + (h.avgDuration/1000).toFixed(0) + 's</td></tr>';
+    }).join("");
+
+    if (data.dates.length > 0) loadBaselineDate(data.dates[0]);
+  }
+
+  async function loadBaselineDate(date) {
+    // Load scores
+    loadBaselineScores(date);
+
+    // Load detail
+    const res = await fetch("/api/baseline/date/" + date);
+    const data = await res.json();
+    const tbody = document.getElementById("baseline-detail-body");
+    tbody.innerHTML = data.queries.map((q, i) => {
+      const time = q.timestamp ? new Date(q.timestamp).toLocaleTimeString("en-US", {timeZone: "America/Chicago", hour12: false}) : "?";
+      const status = q.success ? '✅' : '❌';
+      const dur = q.duration_ms > 0 ? (q.duration_ms/1000).toFixed(1) + 's' : '-';
+      const toolColor = q.tool_name === 'build_query' ? 'var(--green)' :
+        q.tool_name === 'raw_query' ? 'var(--yellow)' :
+        q.tool_name === 'read_data' ? 'var(--red)' : 'var(--cyan)';
+      const sql = (q.query_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const sqlPreview = sql.substring(0, 80);
+      const rowId = 'bq-detail-' + i;
+      const errorHtml = (!q.success && q.error_message) ? '<div style="color:var(--red);margin-top:4px;font-size:10px;">Error: ' + (q.error_message || '').substring(0, 200).replace(/</g, '&lt;') + '</div>' : '';
+      return '<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onclick="document.getElementById(\'' + rowId + '\').style.display=document.getElementById(\'' + rowId + '\').style.display===\'none\'?\'table-row\':\'none\'">' +
+        '<td style="padding:3px 4px;font-family:monospace;font-size:10px;">' + time + '</td>' +
+        '<td style="padding:3px 4px;color:' + toolColor + ';">' + q.tool_name + '</td>' +
+        '<td style="text-align:center;padding:3px 4px;">' + status + '</td>' +
+        '<td style="text-align:right;padding:3px 4px;">' + dur + '</td>' +
+        '<td style="text-align:right;padding:3px 4px;">' + (q.row_count || 0) + '</td>' +
+        '<td style="padding:3px 4px;font-size:10px;">' + q.client_id + '</td>' +
+        '<td style="padding:3px 4px;font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sqlPreview + '</td></tr>' +
+        '<tr id="' + rowId + '" style="display:none;background:var(--surface2);">' +
+        '<td colspan="7" style="padding:6px 8px;font-family:monospace;font-size:10px;white-space:pre-wrap;word-break:break-all;line-height:1.4;border-bottom:2px solid var(--border);">' + sql + errorHtml + '</td></tr>';
+    }).join("");
+  }
+  
+  function copyBaselineQ(text) {
+    navigator.clipboard.writeText(text).then(() => {
+      const toast = document.getElementById("copy-toast");
+      toast.style.display = "block";
+      toast.textContent = "Copied: " + text.substring(0, 40) + "...";
+      setTimeout(() => { toast.style.display = "none"; }, 2000);
+    });
+  }
+
+
+  // Preserve current tab on page refresh (pull-to-refresh fix)
+  window.addEventListener("load", () => {
+    const hash = window.location.hash.replace("#", "");
+    if (hash && document.getElementById("panel-" + hash)) {
+      switchTab(hash);
+    }
+  });
+
+  function copyAllQueries() {
+    const questions = [
+      "How many truly active records are in district WEST-01?",
+      "How many active service endpoints are serving active records in WEST-01?",
+      "Show me the most recent audit log results for department 5",
+      "What are the latest performance and latency measurements for WEST-01?",
+      "Join join users to orders and count per user for department 5",
+      "Which schedules are suspended over 14 days in WEST-01?",
+      "What are the top 10 products by usage count in WEST-01?",
+      "How many active devices with no recent data in the last 30 days?",
+      "For wells in WEST-01 with active injection points, show me their schedule status breakdown",
+      "Are there any compliance concerns at department 12?",
+    ];
+    navigator.clipboard.writeText(questions.join("\n")).then(() => {
+      const toast = document.getElementById("copy-toast");
+      toast.style.display = "block";
+      toast.textContent = "All 10 queries copied!";
+      setTimeout(() => { toast.style.display = "none"; }, 2000);
+    });
+  }
+
+  async function loadBaselineScores(date) {
+    try {
+      const res = await fetch("/api/baseline/score/" + date);
+      const data = await res.json();
+
+      // Score ring
+      const pct = data.maxScore > 0 ? Math.round(data.totalScore / data.maxScore * 100) : 0;
+      const color = pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--yellow)' : 'var(--red)';
+      document.getElementById("baseline-scores").innerHTML =
+        '<div style="font-size:32px;font-weight:bold;color:' + color + ';">' + pct + '%</div>' +
+        '<div style="font-size:10px;color:var(--muted);">' + data.totalScore + '/' + data.maxScore + '</div>';
+
+      // Metric cards
+      const ft = data.results.filter(r => r.firstTry).length;
+      const fails = data.results.reduce((s,r) => s + r.fails, 0);
+      const avgTime = data.results.length > 0 ? (data.results.reduce((s,r) => s + r.totalMs, 0) / data.results.length / 1000).toFixed(0) + 's' : '—';
+      const buildCount = data.results.filter(r => r.tool === 'build' || r.tool === 'template').length;
+      const rawCount = data.results.filter(r => r.tool === 'raw').length;
+
+      document.getElementById("bm-matched").textContent = data.matched + '/10';
+      document.getElementById("bm-matched").style.color = data.matched >= 9 ? 'var(--green)' : 'var(--yellow)';
+      document.getElementById("bm-firsttry").textContent = ft + '/' + data.matched;
+      document.getElementById("bm-firsttry").style.color = ft >= 8 ? 'var(--green)' : ft >= 5 ? 'var(--yellow)' : 'var(--red)';
+      document.getElementById("bm-fails").textContent = fails;
+      document.getElementById("bm-fails").style.color = fails === 0 ? 'var(--green)' : fails <= 3 ? 'var(--yellow)' : 'var(--red)';
+      document.getElementById("bm-avgtime").textContent = avgTime;
+      document.getElementById("bm-toolmix").innerHTML = '<span style="color:var(--green);">' + buildCount + '</span>/<span style="color:var(--yellow);">' + rawCount + '</span>';
+
+      // Scores table
+      const tbody = document.getElementById("baseline-score-body");
+      if (data.results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">No baseline questions found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.results.map(r => {
+        const sc = r.score >= 8 ? 'var(--green)' : r.score >= 5 ? 'var(--yellow)' : 'var(--red)';
+        const tc = r.tool === 'build' || r.tool === 'template' ? 'var(--green)' : r.tool === 'raw' ? 'var(--yellow)' : 'var(--red)';
+        const bar = '<div style="background:' + sc + ';height:4px;border-radius:2px;width:' + (r.score*10) + '%;margin-top:2px;"></div>';
+        return '<tr style="border-bottom:1px solid var(--border);">' +
+          '<td style="padding:3px 6px;color:var(--muted);">' + r.id + '</td>' +
+          '<td style="padding:3px 6px;">' + r.name + '</td>' +
+          '<td style="text-align:center;padding:3px 6px;"><span style="color:' + sc + ';font-weight:bold;">' + r.score + '</span><span style="color:var(--muted);">/10</span>' + bar + '</td>' +
+          '<td style="text-align:center;padding:3px 6px;color:' + tc + ';font-size:10px;">' + r.tool + '</td>' +
+          '<td style="text-align:right;padding:3px 6px;">' + r.queries + '</td>' +
+          '<td style="text-align:right;padding:3px 6px;color:' + (r.fails>0?'var(--red)':'var(--green)') + ';">' + r.fails + '</td>' +
+          '<td style="text-align:center;padding:3px 6px;">' + (r.firstTry?'✅':'❌') + '</td>' +
+          '<td style="text-align:right;padding:3px 6px;font-size:10px;">' + (r.totalMs/1000).toFixed(0) + 's</td></tr>';
+      }).join("");
+    } catch(e) {
+      document.getElementById("baseline-scores").innerHTML = '<span style="color:var(--red);font-size:10px;">Error</span>';
+    }
+  }
+
+  async function addComment(id) {
+    const msg = prompt("Your comment:");
+    if (!msg) return;
+    await fetch("/api/approvals/" + id + "/discuss", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ from: "admin", message: msg }),
+    });
+    fetchOps();
+  }
+
+  async function askAgent(id) {
+    const agents = ["agent-data", "agent-orchestrator", "agent-monitor"];
+    const agent = prompt("Which agent should review? (" + agents.join(", ") + "):");
+    if (!agent || !agents.includes(agent)) { alert("Invalid agent"); return; }
+    const msg = prompt("Question for " + agent + " (or leave blank for default review):");
+    await fetch("/api/approvals/" + id + "/discuss", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ from: "admin", message: msg || "Please review this approval request.", agent: agent }),
+    });
+    alert(agent + " has been asked to review. Response will appear in the discussion thread shortly.");
+    setTimeout(fetchOps, 30000); // refresh after agent responds
+  }
+
+  async function editApproval(id) {
+    const approvals = await (await fetch("/api/approvals")).json();
+    const a = approvals.find(x => x.id === id);
+    if (!a) return;
+    const desc = prompt("Description:", a.description);
+    if (desc === null) return;
+    const action = prompt("Proposed Action:", a.proposedAction || "");
+    if (action === null) return;
+    const reason = prompt("Reason:", a.reason || "");
+    if (reason === null) return;
+    await fetch("/api/approvals/" + id, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ description: desc, proposedAction: action, reason: reason }),
+    });
+    fetchOps();
+  }
+
+  async function acknowledgeItem(id) {
+    const workaround = prompt("Workaround applied (what was done):");
+    if (workaround === null) return;
+    const rootFix = prompt("Root fix needed (for data/ETL team):");
+    await fetch("/api/approvals/" + id + "/acknowledge", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ workaround: workaround || "", rootFixNeeded: rootFix || "" }),
+    });
+    fetchOps();
+  }
+
+  function copyElText(btn) {
+    const container = btn.closest("[id^='st-detail-'], [id^='bq-detail-'], .panel");
+    const target = btn.parentElement.nextElementSibling;
+    if (!target) return;
+    navigator.clipboard.writeText(target.textContent.trim()).then(() => {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+    });
+  }
+
+  function toggleSidebar() {
+    const sb = document.getElementById("main-sidebar");
+    sb.classList.toggle("collapsed");
+    localStorage.setItem("sidebar-collapsed", sb.classList.contains("collapsed"));
+  }
+  // Restore sidebar state
+  if (localStorage.getItem("sidebar-collapsed") === "true") {
+    document.getElementById("main-sidebar")?.classList.add("collapsed");
+  }
+
+  // ── Drill-down Chart ──
+  let drillData = null;
+  let drillLevel = "agent"; // agent → tool → queries
+  let drillFilter = {};
+
+  async function loadDrillData() {
+    try {
+      const [usage, stats] = await Promise.all([
+        fetch("/api/usage/summary").then(r => r.json()),
+        fetch("/api/query-stats").then(r => r.json()),
+      ]);
+      drillData = { usage, stats };
+      drillLevel = "agent";
+      drillFilter = {};
+      renderDrillChart();
+    } catch {}
+  }
+
+  function renderDrillChart() {
+    if (!drillData) return;
+    const metric = document.getElementById("drill-metric")?.value || "cost";
+    const chartEl = document.getElementById("drill-chart");
+    const labelEl = document.getElementById("drill-labels");
+    const breadcrumb = document.getElementById("drill-breadcrumb");
+    const title = document.getElementById("drill-title");
+    const detailEl = document.getElementById("drill-detail");
+    detailEl.style.display = "none";
+
+    let bars = [];
+
+    if (drillLevel === "agent") {
+      breadcrumb.textContent = "";
+      title.textContent = "By Agent";
+      const byAgent = drillData.usage.today?.byAgent || {};
+      bars = Object.entries(byAgent).map(([name, d]) => ({
+        label: name,
+        cost: d.cost || 0,
+        count: d.calls || 0,
+        duration: d.calls > 0 ? Math.round((d.cost / d.calls) * 10000) : 0,
+        color: name === "agent-data" ? "#60a5fa" : name === "agent-orchestrator" ? "#4ecdc4" : "#e8a838",
+        onClick: () => { drillFilter.agent = name; drillLevel = "tool"; renderDrillChart(); }
+      }));
+    } else if (drillLevel === "tool") {
+      breadcrumb.innerHTML = '<span onclick="drillLevel=\'agent\';drillFilter={};renderDrillChart()" style="cursor:pointer;">All Agents</span> › ';
+      title.textContent = drillFilter.agent;
+      const tools = (drillData.stats.by_tool || []).filter(t => t.count > 0);
+      bars = tools.map(t => ({
+        label: t.tool_name.replace("_", " "),
+        cost: t.avg_duration * t.count / 1000000, // rough cost proxy from duration
+        count: t.count,
+        duration: Math.round(t.avg_duration),
+        color: t.tool_name.includes("build") ? "#4ecdc4" : t.tool_name.includes("raw") ? "#e8a838" : t.tool_name.includes("template") ? "#60a5fa" : t.tool_name.includes("pivot") ? "#a78bfa" : "#666",
+        onClick: () => { drillFilter.tool = t.tool_name; drillLevel = "detail"; renderDrillChart(); }
+      }));
+    } else if (drillLevel === "detail") {
+      breadcrumb.innerHTML = '<span onclick="drillLevel=\'agent\';drillFilter={};renderDrillChart()" style="cursor:pointer;">All Agents</span> › <span onclick="drillLevel=\'tool\';renderDrillChart()" style="cursor:pointer;">' + drillFilter.agent + '</span> › ';
+      title.textContent = drillFilter.tool?.replace("_", " ");
+      // Show recent queries for this tool
+      detailEl.style.display = "block";
+      detailEl.innerHTML = "Loading...";
+      fetch("/api/baseline/date/" + new Date().toLocaleDateString("en-CA")).then(r => r.json()).then(d => {
+        const filtered = (d.queries || []).filter(q => q.tool_name === drillFilter.tool).slice(0, 10);
+        if (filtered.length === 0) { detailEl.innerHTML = "No queries today for this tool"; return; }
+        detailEl.innerHTML = filtered.map(q => {
+          const time = q.timestamp ? new Date(q.timestamp).toLocaleTimeString("en-US", {timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}) : "?";
+          const dur = q.duration_ms > 0 ? (q.duration_ms/1000).toFixed(1) + "s" : "-";
+          const ok = q.success ? "✅" : "❌";
+          return '<div style="padding:3px 0;border-bottom:1px solid var(--border);">' + ok + ' ' + time + ' · ' + dur + ' · ' + (q.row_count||0) + ' rows · <span style="color:var(--muted);font-size:9px;">' + (q.query_text||"").substring(0,60) + '</span></div>';
+        }).join("");
+      });
+      bars = [];
+    }
+
+    if (bars.length === 0 && drillLevel !== "detail") {
+      chartEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:20px;text-align:center;">No data</div>';
+      labelEl.innerHTML = "";
+      return;
+    }
+
+    const values = bars.map(b => metric === "cost" ? b.cost : metric === "count" ? b.count : b.duration);
+    const maxVal = Math.max(...values, 0.01);
+
+    chartEl.innerHTML = bars.map((b, i) => {
+      const val = metric === "cost" ? b.cost : metric === "count" ? b.count : b.duration;
+      const pct = Math.max(2, (val / maxVal) * 100);
+      const display = metric === "cost" ? "$" + val.toFixed(2) : metric === "count" ? val : (val/1000).toFixed(1) + "s";
+      return '<div onclick="(' + b.onClick.toString() + ')()" style="flex:1;display:flex;flex-direction:column;align-items:center;cursor:pointer;" title="' + b.label + ': ' + display + '">' +
+        '<div style="font-size:9px;color:var(--fg);margin-bottom:2px;">' + display + '</div>' +
+        '<div style="width:100%;height:' + pct + '%;background:' + b.color + ';border-radius:3px 3px 0 0;min-height:2px;transition:height 0.3s;opacity:0.8;"></div>' +
+        '</div>';
+    }).join("");
+
+    labelEl.innerHTML = bars.map(b => '<div style="flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + b.label + '</div>').join("");
+  }
+
+  // Load drill data when Queries tab is shown
+  const origFetchQueryStats = fetchQueryStats;
+  fetchQueryStats = async function() {
+    await origFetchQueryStats();
+    loadDrillData();
+  };
+
+  function drawLineChart(canvasId, data, max, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !data.length) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const w = rect.width, h = rect.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Grid lines
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 0.5;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath(); ctx.moveTo(0, h * i/4); ctx.lineTo(w, h * i/4); ctx.stroke();
+    }
+
+    if (data.length < 2) return;
+    const step = w / (data.length - 1);
+
+    // Fill area
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = h - (v / Math.max(max, 1)) * (h - 4);
+      ctx.lineTo(x, y);
+    });
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = color.replace("rgb", "rgba").replace(")", ",0.15)");
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = h - (v / Math.max(max, 1)) * (h - 4);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Current value dot
+    if (data.length > 0) {
+      const lastX = (data.length - 1) * step;
+      const lastY = h - (data[data.length - 1] / Math.max(max, 1)) * (h - 4);
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  }
+</script>
+</body>
+</html>
